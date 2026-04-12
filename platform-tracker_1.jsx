@@ -1,16 +1,16 @@
 import { useState, useEffect } from "react";
 
 const STATUS = {
-  todo:       { label: "To Do",       color: "#6b7280", bg: "#1a1a1a" },
-  inprogress: { label: "In Progress", color: "#f59e0b", bg: "#2a1f00" },
-  done:       { label: "Done",        color: "#10b981", bg: "#001f12" },
-  blocked:    { label: "Blocked",     color: "#ef4444", bg: "#1f0000" },
+  todo:       { label: "To Do",       color: "#8b8fa8", bg: "#2a2b36" },
+  inprogress: { label: "In Progress", color: "#e6a817", bg: "#2e2410" },
+  done:       { label: "Done",        color: "#3ec9a7", bg: "#0f2820" },
+  blocked:    { label: "Blocked",     color: "#e05c5c", bg: "#2e1515" },
 };
 
 const PRIORITY = {
   high:   { label: "High", color: "#ef4444" },
   medium: { label: "Med",  color: "#f59e0b" },
-  low:    { label: "Low",  color: "#4b5563" },
+  low:    { label: "Low",  color: "#636580" },
 };
 
 const Icons = {
@@ -80,15 +80,15 @@ let nextTaskId = 100;
 const STORAGE_KEY = "platform-modules-v3";
 
 const C = {
-  bg:           "#0a0a0a",
-  surface:      "#141414",
-  surfaceMid:   "#1c1c1c",
-  surfaceHigh:  "#252525",
-  border:       "#2a2a2a",
-  borderBright: "#3a3a3a",
-  textPrimary:  "#f0f0f0",
-  textSecondary:"#888888",
-  textMuted:    "#555555",
+  bg:           "#1e1f2e",
+  surface:      "#262735",
+  surfaceMid:   "#2e2f40",
+  surfaceHigh:  "#383a4e",
+  border:       "#3a3c50",
+  borderBright: "#525470",
+  textPrimary:  "#d4d6e8",
+  textSecondary:"#9698b0",
+  textMuted:    "#636580",
 };
 
 // Deterministic color from string
