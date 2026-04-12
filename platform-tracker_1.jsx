@@ -107,6 +107,9 @@ export default function PlatformTracker() {
   const navigateTo = (id) => {
     setActiveModule(id);
     window.location.hash = id;
+    setTimeout(() => {
+      document.getElementById(`module-${id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 0);
   };
   const [filter, setFilter]             = useState("all");
   const [newTaskText, setNewTaskText]   = useState("");
@@ -216,198 +219,199 @@ export default function PlatformTracker() {
   );
 
   return (
-    <div style={{ fontFamily: "system-ui, -apple-system, sans-serif", background: C.bg, minHeight: "100vh", color: C.textPrimary }}>
+    <div style={{ fontFamily: "system-ui, -apple-system, sans-serif", background: C.bg, height: "100vh", display: "flex", flexDirection: "column", color: C.textPrimary }}>
 
       {/* Top nav */}
-      <div style={{ padding: "22px 32px 0", borderBottom: `1px solid ${C.border}` }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <h1 style={{ fontSize: 21, fontWeight: 700, margin: 0, letterSpacing: -0.5 }}>Module Tracker</h1>
-            <span style={{ fontSize: 12, color: saving ? C.textMuted : "#10b981" }}>{saving ? "saving..." : "✓"}</span>
+      <div style={{ padding: "16px 24px", borderBottom: `1px solid ${C.border}`, flexShrink: 0, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <h1 style={{ fontSize: 21, fontWeight: 700, margin: 0, letterSpacing: -0.5 }}>Module Tracker</h1>
+          <span style={{ fontSize: 12, color: saving ? C.textMuted : "#10b981" }}>{saving ? "saving..." : "✓"}</span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 24 }}>
+          <div style={{ display: "flex", gap: 20 }}>
+            {[
+              { label: "Total",   value: totals.total,      color: C.textSecondary },
+              { label: "Active",  value: totals.inprogress, color: "#f59e0b" },
+              { label: "Blocked", value: totals.blocked,    color: "#ef4444" },
+              { label: "Done",    value: totals.done,       color: "#10b981" },
+            ].map((s, i) => (
+              <div key={i} style={{ textAlign: "center" }}>
+                <div style={{ fontSize: 22, fontWeight: 700, color: s.color }}>{s.value}</div>
+                <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 1 }}>{s.label}</div>
+              </div>
+            ))}
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
-            {/* Stats */}
-            <div style={{ display: "flex", gap: 20 }}>
-              {[
-                { label: "Total",    value: totals.total,      color: C.textSecondary },
-                { label: "Active",   value: totals.inprogress, color: "#f59e0b" },
-                { label: "Blocked",  value: totals.blocked,    color: "#ef4444" },
-                { label: "Done",     value: totals.done,       color: "#10b981" },
-              ].map((s, i) => (
-                <div key={i} style={{ textAlign: "center" }}>
-                  <div style={{ fontSize: 22, fontWeight: 700, color: s.color }}>{s.value}</div>
-                  <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 1 }}>{s.label}</div>
-                </div>
-              ))}
-            </div>
-            {/* View toggle */}
-            <div style={{ display: "flex", gap: 4, background: C.surfaceMid, padding: 3, borderRadius: 7, border: `1px solid ${C.border}` }}>
-              {[
-                { id: "modules",  label: "Modules"  },
-                { id: "projects", label: "Projects" },
-              ].map(v => (
-                <button key={v.id} onClick={() => { setView(v.id); setSelectedProject(null); }} style={{
-                  background: view === v.id ? C.surfaceHigh : "transparent",
-                  border: `1px solid ${view === v.id ? C.borderBright : "transparent"}`,
-                  borderRadius: 5, padding: "5px 16px", fontSize: 13,
-                  color: view === v.id ? C.textPrimary : C.textMuted, cursor: "pointer", fontWeight: view === v.id ? 600 : 400
-                }}>{v.label}</button>
-              ))}
-            </div>
+          <div style={{ display: "flex", gap: 4, background: C.surfaceMid, padding: 3, borderRadius: 7, border: `1px solid ${C.border}` }}>
+            {[{ id: "modules", label: "Modules" }, { id: "projects", label: "Projects" }].map(v => (
+              <button key={v.id} onClick={() => { setView(v.id); setSelectedProject(null); }} style={{
+                background: view === v.id ? C.surfaceHigh : "transparent",
+                border: `1px solid ${view === v.id ? C.borderBright : "transparent"}`,
+                borderRadius: 5, padding: "5px 16px", fontSize: 13,
+                color: view === v.id ? C.textPrimary : C.textMuted, cursor: "pointer", fontWeight: view === v.id ? 600 : 400
+              }}>{v.label}</button>
+            ))}
           </div>
         </div>
+      </div>
 
-        {/* Module pills (only in modules view) */}
-        {view === "modules" && (
-          <div style={{ display: "flex", gap: 4, overflowX: "auto", paddingBottom: 1, scrollbarWidth: "none" }}>
+      {/* ── MODULES VIEW ── */}
+      {view === "modules" && (
+        <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
+
+          {/* Sidebar */}
+          <div style={{ width: 192, borderRight: `1px solid ${C.border}`, overflowY: "auto", flexShrink: 0, padding: "12px 8px", display: "flex", flexDirection: "column", gap: 2 }}>
+            {/* Filter */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 2, marginBottom: 10 }}>
+              {["all", "inprogress", "blocked", "todo", "done"].map(f => (
+                <button key={f} onClick={() => setFilter(f)} style={{
+                  background: filter === f ? C.surfaceHigh : "transparent",
+                  border: `1px solid ${filter === f ? C.borderBright : "transparent"}`,
+                  borderRadius: 5, padding: "4px 10px", fontSize: 12, textAlign: "left",
+                  color: filter === f ? C.textPrimary : C.textMuted, cursor: "pointer",
+                }}>
+                  {f === "all" ? "All" : STATUS[f]?.label}
+                </button>
+              ))}
+            </div>
+            <div style={{ height: 1, background: C.border, margin: "0 4px 8px" }} />
+            {/* Module list */}
             {modules.map(m => {
               const s = stats(m);
               const isActive = m.id === activeModule;
               const accent = s.blocked > 0 ? "#ef4444" : s.inprogress > 0 ? "#f59e0b" : (s.total > 0 && s.done === s.total) ? "#10b981" : null;
               const IconComp = Icons[m.icon] || Icons.Utils;
               return (
-                <button key={m.id} onClick={() => { navigateTo(m.id); setFilter("all"); setShowProjectInput(false); }} style={{
-                  flexShrink: 0, background: isActive ? C.surfaceMid : "transparent",
-                  border: `1px solid ${isActive ? (accent || C.borderBright) : C.border}`,
-                  borderBottom: isActive ? `2px solid ${accent || C.borderBright}` : `1px solid ${C.border}`,
-                  borderRadius: "6px 6px 0 0", padding: "9px 14px 11px", cursor: "pointer", minWidth: 96,
+                <button key={m.id} onClick={() => { navigateTo(m.id); setShowProjectInput(false); }} style={{
+                  background: isActive ? C.surfaceMid : "transparent",
+                  border: `1px solid ${isActive ? (accent || C.borderBright) : "transparent"}`,
+                  borderLeft: `2px solid ${isActive ? (accent || C.borderBright) : "transparent"}`,
+                  borderRadius: 6, padding: "7px 10px", cursor: "pointer", textAlign: "left", width: "100%",
                 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 5, color: isActive ? C.textPrimary : C.textMuted }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, color: isActive ? C.textPrimary : C.textMuted }}>
                     <IconComp />
-                    <span style={{ fontSize: 13, fontWeight: 600, whiteSpace: "nowrap" }}>{m.name}</span>
+                    <span style={{ fontSize: 13, fontWeight: 600 }}>{m.name}</span>
                   </div>
-                  <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2, paddingLeft: 19 }}>
+                  <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2, paddingLeft: 20 }}>
                     {s.total === 0 ? "—" : `${s.done}/${s.total}`}
-                    {m.projects.length > 0 && <span style={{ color: C.textMuted }}> · {m.projects.length}p</span>}
+                    {m.projects.length > 0 && <span> · {m.projects.length}p</span>}
                   </div>
                 </button>
               );
             })}
           </div>
-        )}
-      </div>
 
-      {/* ── MODULES VIEW ── */}
-      {view === "modules" && active && (
-        <div style={{ padding: "28px 32px", maxWidth: 860 }}>
-          {/* Module header */}
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <div style={{ color: C.textSecondary, background: C.surfaceMid, padding: 8, borderRadius: 7, border: `1px solid ${C.border}`, display: "flex" }}>
-                {(() => { const I = Icons[active.icon] || Icons.Utils; return <I />; })()}
-              </div>
-              <div>
-                <h2 style={{ fontSize: 19, fontWeight: 700, margin: 0 }}>{active.name}</h2>
-                <p style={{ fontSize: 13, color: C.textMuted, margin: "2px 0 0" }}>{active.subtitle}</p>
-              </div>
-            </div>
-            <div style={{ display: "flex", gap: 4 }}>
-              {["all", "inprogress", "blocked", "todo", "done"].map(f => pill(f === "all" ? "All" : STATUS[f]?.label, filter === f, () => setFilter(f)))}
-            </div>
-          </div>
+          {/* Main content — all modules */}
+          <div style={{ flex: 1, overflowY: "auto", padding: "24px 32px" }}>
+            {modules.map(m => {
+              const mFiltered = m.tasks.filter(t => filter === "all" || t.status === filter);
+              const isActive = m.id === activeModule;
+              const IconComp = Icons[m.icon] || Icons.Utils;
+              return (
+                <div key={m.id} id={`module-${m.id}`} style={{ marginBottom: 36 }}>
+                  {/* Module header */}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+                      <div style={{ color: C.textSecondary, background: C.surfaceMid, padding: 7, borderRadius: 7, border: `1px solid ${C.border}`, display: "flex" }}>
+                        <IconComp />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 15, fontWeight: 700 }}>{m.name}</div>
+                        <div style={{ fontSize: 12, color: C.textMuted }}>{m.subtitle}</div>
+                      </div>
+                    </div>
+                    {/* Project tags */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap" }}>
+                      {m.projects.map(proj => (
+                        <span key={proj} style={{
+                          display: "inline-flex", alignItems: "center", gap: 4,
+                          background: projectColor(proj) + "18", border: `1px solid ${projectColor(proj)}50`,
+                          borderRadius: 99, padding: "2px 8px 2px 10px", fontSize: 11, color: projectColor(proj)
+                        }}>
+                          {proj}
+                          <button onClick={() => removeProject(m.id, proj)} style={{ background: "none", border: "none", cursor: "pointer", color: projectColor(proj), opacity: 0.7, padding: 0, display: "flex", alignItems: "center" }}>
+                            <Icons.X />
+                          </button>
+                        </span>
+                      ))}
+                      {isActive && showProjectInput ? (
+                        <div style={{ display: "flex", gap: 4 }}>
+                          <input autoFocus value={newProjectName} onChange={e => setNewProjectName(e.target.value)}
+                            onKeyDown={e => { if (e.key === "Enter") addProject(m.id); if (e.key === "Escape") { setShowProjectInput(false); setNewProjectName(""); } }}
+                            placeholder="Project name..."
+                            style={{ background: C.surface, border: `1px solid ${C.borderBright}`, borderRadius: 5, padding: "3px 8px", fontSize: 12, color: C.textPrimary, outline: "none", width: 140 }} />
+                          {allProjects.filter(p => !m.projects.includes(p) && p.toLowerCase().includes(newProjectName.toLowerCase())).slice(0, 4).map(p => (
+                            <button key={p} onClick={() => { setModules(prev => prev.map(x => x.id === m.id ? { ...x, projects: [...x.projects, p] } : x)); setShowProjectInput(false); setNewProjectName(""); }}
+                              style={{ background: projectColor(p) + "18", border: `1px solid ${projectColor(p)}50`, borderRadius: 99, padding: "2px 10px", fontSize: 11, color: projectColor(p), cursor: "pointer" }}>{p}</button>
+                          ))}
+                          <button onClick={() => { setShowProjectInput(false); setNewProjectName(""); }}
+                            style={{ background: "transparent", border: `1px solid ${C.border}`, borderRadius: 5, padding: "3px 8px", fontSize: 11, color: C.textMuted, cursor: "pointer" }}>Cancel</button>
+                        </div>
+                      ) : (
+                        <button onClick={() => { navigateTo(m.id); setShowProjectInput(true); }} style={{
+                          display: "inline-flex", alignItems: "center", gap: 4,
+                          background: "transparent", border: `1px dashed ${C.border}`, borderRadius: 99,
+                          padding: "2px 8px", fontSize: 11, color: C.textMuted, cursor: "pointer"
+                        }}>
+                          <Icons.Plus /><span>Add project</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
 
-          {/* Project tags */}
-          <div style={{ marginBottom: 18 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 4, color: C.textMuted, fontSize: 11 }}>
-                <Icons.Tag /><span>Projects:</span>
-              </div>
-              {active.projects.map(proj => (
-                <span key={proj} style={{
-                  display: "inline-flex", alignItems: "center", gap: 5,
-                  background: projectColor(proj) + "18", border: `1px solid ${projectColor(proj)}50`,
-                  borderRadius: 99, padding: "2px 8px 2px 10px", fontSize: 11, color: projectColor(proj)
-                }}>
-                  {proj}
-                  <button onClick={() => removeProject(active.id, proj)} style={{ background: "none", border: "none", cursor: "pointer", color: projectColor(proj), opacity: 0.7, padding: 0, display: "flex", alignItems: "center" }}>
-                    <Icons.X />
-                  </button>
-                </span>
-              ))}
-              {showProjectInput ? (
-                <div style={{ display: "flex", gap: 4 }}>
-                  <input
-                    autoFocus
-                    value={newProjectName}
-                    onChange={e => setNewProjectName(e.target.value)}
-                    onKeyDown={e => { if (e.key === "Enter") addProject(active.id); if (e.key === "Escape") { setShowProjectInput(false); setNewProjectName(""); } }}
-                    placeholder="Project name..."
-                    style={{ background: C.surface, border: `1px solid ${C.borderBright}`, borderRadius: 5, padding: "3px 8px", fontSize: 12, color: C.textPrimary, outline: "none", width: 140 }}
-                  />
-                  {/* Suggest existing projects not yet tagged */}
-                  {allProjects.filter(p => !active.projects.includes(p) && p.toLowerCase().includes(newProjectName.toLowerCase())).slice(0, 4).map(p => (
-                    <button key={p} onClick={() => { setModules(prev => prev.map(m => m.id === active.id ? { ...m, projects: [...m.projects, p] } : m)); setShowProjectInput(false); setNewProjectName(""); }}
-                      style={{ background: projectColor(p) + "18", border: `1px solid ${projectColor(p)}50`, borderRadius: 99, padding: "2px 10px", fontSize: 11, color: projectColor(p), cursor: "pointer" }}>
-                      {p}
+                  {/* Tasks */}
+                  <div style={{ display: "flex", flexDirection: "column", gap: 5, marginBottom: 8 }}>
+                    {mFiltered.length === 0 && filter === "all" && (
+                      <div style={{ color: C.textMuted, fontSize: 12, padding: "6px 0" }}>No tasks yet</div>
+                    )}
+                    {mFiltered.map(task => (
+                      <div key={task.id} style={{
+                        background: C.surface, borderRadius: 7, padding: "9px 12px",
+                        display: "flex", alignItems: "center", gap: 10,
+                        border: `1px solid ${task.status === "blocked" ? "#ef444428" : task.status === "inprogress" ? "#f59e0b22" : task.status === "done" ? "#10b98118" : C.border}`
+                      }}>
+                        <div style={{ width: 6, height: 6, borderRadius: "50%", background: PRIORITY[task.priority].color, flexShrink: 0 }} />
+                        <div style={{ flex: 1, fontSize: 13, color: task.status === "done" ? C.textMuted : C.textPrimary, textDecoration: task.status === "done" ? "line-through" : "none" }}>{task.text}</div>
+                        <select value={task.priority} onChange={e => updateTask(m.id, task.id, { priority: e.target.value })}
+                          style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 5, padding: "2px 5px", fontSize: 11, color: PRIORITY[task.priority].color, cursor: "pointer" }}>
+                          {Object.entries(PRIORITY).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                        </select>
+                        <select value={task.status} onChange={e => updateTask(m.id, task.id, { status: e.target.value })}
+                          style={{ background: STATUS[task.status].bg, border: `1px solid ${STATUS[task.status].color}45`, borderRadius: 5, padding: "2px 7px", fontSize: 11, color: STATUS[task.status].color, cursor: "pointer" }}>
+                          {Object.entries(STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                        </select>
+                        <button onClick={() => deleteTask(m.id, task.id)}
+                          style={{ background: "transparent", border: "none", color: C.textMuted, cursor: "pointer", fontSize: 16, lineHeight: 1, padding: "0 2px" }}>×</button>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Add task row */}
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <input value={isActive ? newTaskText : ""} onChange={e => { navigateTo(m.id); setNewTaskText(e.target.value); }}
+                      onKeyDown={e => e.key === "Enter" && addTask(m.id)}
+                      placeholder={`Add task to ${m.name}...`}
+                      style={{ flex: 1, background: C.surface, border: `1px solid ${isActive ? C.borderBright : C.border}`, borderRadius: 7, padding: "7px 12px", color: C.textPrimary, fontSize: 13, outline: "none" }} />
+                    <select value={newPriority} onChange={e => setNewPriority(e.target.value)}
+                      style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 7, padding: "7px 8px", color: C.textSecondary, fontSize: 12, cursor: "pointer" }}>
+                      {Object.entries(PRIORITY).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                    </select>
+                    <button onClick={() => addTask(m.id)}
+                      style={{ background: C.surfaceHigh, border: `1px solid ${C.borderBright}`, borderRadius: 7, padding: "7px 16px", color: C.textPrimary, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                      Add
                     </button>
-                  ))}
-                  <button onClick={() => { setShowProjectInput(false); setNewProjectName(""); }}
-                    style={{ background: "transparent", border: `1px solid ${C.border}`, borderRadius: 5, padding: "3px 8px", fontSize: 11, color: C.textMuted, cursor: "pointer" }}>Cancel</button>
-                </div>
-              ) : (
-                <button onClick={() => setShowProjectInput(true)} style={{
-                  display: "inline-flex", alignItems: "center", gap: 4,
-                  background: "transparent", border: `1px dashed ${C.border}`, borderRadius: 99,
-                  padding: "2px 8px", fontSize: 11, color: C.textMuted, cursor: "pointer"
-                }}>
-                  <Icons.Plus /><span>Add project</span>
-                </button>
-              )}
-            </div>
-          </div>
+                  </div>
 
-          {/* Tasks */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 }}>
-            {filtered.length === 0 && (
-              <div style={{ textAlign: "center", padding: 40, color: C.textMuted, fontSize: 13 }}>
-                {filter === "all" ? "No tasks yet — add one below" : `No ${STATUS[filter]?.label} tasks`}
-              </div>
-            )}
-            {filtered.map(task => (
-              <div key={task.id} style={{
-                background: C.surface, borderRadius: 7, padding: "10px 13px",
-                display: "flex", alignItems: "center", gap: 10,
-                border: `1px solid ${task.status === "blocked" ? "#ef444428" : task.status === "inprogress" ? "#f59e0b22" : task.status === "done" ? "#10b98118" : C.border}`
-              }}>
-                <div style={{ width: 6, height: 6, borderRadius: "50%", background: PRIORITY[task.priority].color, flexShrink: 0 }} />
-                <div style={{ flex: 1, fontSize: 13, color: task.status === "done" ? C.textMuted : C.textPrimary, textDecoration: task.status === "done" ? "line-through" : "none" }}>
-                  {task.text}
+                  <div style={{ height: 1, background: C.border, marginTop: 28 }} />
                 </div>
-                <select value={task.priority} onChange={e => updateTask(active.id, task.id, { priority: e.target.value })}
-                  style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 5, padding: "2px 5px", fontSize: 11, color: PRIORITY[task.priority].color, cursor: "pointer" }}>
-                  {Object.entries(PRIORITY).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-                </select>
-                <select value={task.status} onChange={e => updateTask(active.id, task.id, { status: e.target.value })}
-                  style={{ background: STATUS[task.status].bg, border: `1px solid ${STATUS[task.status].color}45`, borderRadius: 5, padding: "2px 7px", fontSize: 11, color: STATUS[task.status].color, cursor: "pointer" }}>
-                  {Object.entries(STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-                </select>
-                <button onClick={() => deleteTask(active.id, task.id)}
-                  style={{ background: "transparent", border: "none", color: C.textMuted, cursor: "pointer", fontSize: 16, lineHeight: 1, padding: "0 2px" }}>×</button>
-              </div>
-            ))}
-          </div>
-
-          {/* Add task */}
-          <div style={{ display: "flex", gap: 6 }}>
-            <input value={newTaskText} onChange={e => setNewTaskText(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && addTask(active.id)}
-              placeholder={`Add task to ${active.name}...`}
-              style={{ flex: 1, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 7, padding: "9px 13px", color: C.textPrimary, fontSize: 13, outline: "none" }} />
-            <select value={newPriority} onChange={e => setNewPriority(e.target.value)}
-              style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 7, padding: "9px 8px", color: C.textSecondary, fontSize: 12, cursor: "pointer" }}>
-              {Object.entries(PRIORITY).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-            </select>
-            <button onClick={() => addTask(active.id)}
-              style={{ background: C.surfaceHigh, border: `1px solid ${C.borderBright}`, borderRadius: 7, padding: "9px 18px", color: C.textPrimary, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-              Add
-            </button>
+              );
+            })}
           </div>
         </div>
       )}
 
       {/* ── PROJECTS VIEW ── */}
       {view === "projects" && (
-        <div style={{ padding: 24 }}>
+        <div style={{ flex: 1, overflowY: "auto", padding: 28 }}>
           {!selectedProject ? (
             <>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
