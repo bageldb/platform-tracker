@@ -119,6 +119,13 @@ export default function PlatformTracker() {
   const [selectedProject, setSelectedProject] = useState(null); // for projects view drill-in
   const [loading, setLoading]           = useState(true);
   const [saving, setSaving]             = useState(false);
+  const [editingTask, setEditingTask]   = useState(null); // { mid, tid }
+  const [editTaskText, setEditTaskText] = useState("");
+  const [editingModuleId, setEditingModuleId] = useState(null);
+  const [editModuleName, setEditModuleName]   = useState("");
+  const [editModuleSubtitle, setEditModuleSubtitle] = useState("");
+  const [showAddModule, setShowAddModule] = useState(false);
+  const [newModuleName, setNewModuleName] = useState("");
 
   useEffect(() => {
     (async () => {
@@ -126,13 +133,13 @@ export default function PlatformTracker() {
         const res = await fetch("/api/state");
         const { data: saved } = await res.json();
         if (saved) {
-          const merged = initialModules.map(m => {
-            const s = saved.find(x => x.id === m.id);
-            return s ? { ...m, tasks: s.tasks, projects: s.projects || [] } : m;
-          });
-          const maxId = merged.flatMap(m => m.tasks).reduce((max, t) => Math.max(max, t.id), 99);
+          // Use saved modules directly; seed any initialModules not yet in DB
+          const savedIds = new Set(saved.map(m => m.id));
+          const unseeded = initialModules.filter(m => !savedIds.has(m.id));
+          const all = [...saved, ...unseeded];
+          const maxId = all.flatMap(m => m.tasks).reduce((max, t) => Math.max(max, t.id), 99);
           nextTaskId = maxId + 1;
-          setModules(merged);
+          setModules(all);
         } else {
           setModules(initialModules);
         }
@@ -182,6 +189,34 @@ export default function PlatformTracker() {
 
   const removeProject = (mid, proj) =>
     setModules(p => p.map(m => m.id === mid ? { ...m, projects: m.projects.filter(x => x !== proj) } : m));
+
+  const startEditTask = (mid, task) => { setEditingTask({ mid, tid: task.id }); setEditTaskText(task.text); };
+  const commitEditTask = () => {
+    if (editingTask && editTaskText.trim()) updateTask(editingTask.mid, editingTask.tid, { text: editTaskText.trim() });
+    setEditingTask(null);
+  };
+
+  const startEditModule = (m) => { setEditingModuleId(m.id); setEditModuleName(m.name); setEditModuleSubtitle(m.subtitle || ""); };
+  const commitEditModule = () => {
+    if (!editModuleName.trim()) { setEditingModuleId(null); return; }
+    setModules(p => p.map(m => m.id === editingModuleId ? { ...m, name: editModuleName.trim(), subtitle: editModuleSubtitle.trim() } : m));
+    setEditingModuleId(null);
+  };
+
+  const addModule = () => {
+    const name = newModuleName.trim();
+    if (!name) return;
+    const id = name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "") + "-" + Date.now();
+    setModules(p => [...p, { id, name, subtitle: "", icon: "Utils", projects: [], tasks: [] }]);
+    setNewModuleName("");
+    setShowAddModule(false);
+    setTimeout(() => navigateTo(id), 50);
+  };
+
+  const deleteModule = (mid) => {
+    if (!confirm("Delete this module and all its tasks?")) return;
+    setModules(p => p.filter(m => m.id !== mid));
+  };
 
   const stats = (m) => ({
     total:      m.tasks.length,
@@ -298,6 +333,27 @@ export default function PlatformTracker() {
                 </button>
               );
             })}
+
+            {/* Add module */}
+            <div style={{ marginTop: 8 }}>
+              {showAddModule ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 5, padding: "8px 6px" }}>
+                  <input autoFocus value={newModuleName} onChange={e => setNewModuleName(e.target.value)}
+                    onKeyDown={e => { if (e.key === "Enter") addModule(); if (e.key === "Escape") { setShowAddModule(false); setNewModuleName(""); } }}
+                    placeholder="Module name..."
+                    style={{ background: C.surfaceMid, border: `1px solid ${C.borderBright}`, borderRadius: 5, padding: "5px 8px", fontSize: 13, color: C.textPrimary, outline: "none" }} />
+                  <div style={{ display: "flex", gap: 4 }}>
+                    <button onClick={addModule} style={{ flex: 1, background: C.surfaceHigh, border: `1px solid ${C.borderBright}`, borderRadius: 5, padding: "4px 0", fontSize: 12, color: C.textPrimary, cursor: "pointer", fontWeight: 600 }}>Add</button>
+                    <button onClick={() => { setShowAddModule(false); setNewModuleName(""); }} style={{ background: "transparent", border: `1px solid ${C.border}`, borderRadius: 5, padding: "4px 8px", fontSize: 12, color: C.textMuted, cursor: "pointer" }}>✕</button>
+                  </div>
+                </div>
+              ) : (
+                <button onClick={() => setShowAddModule(true)} style={{
+                  width: "100%", background: "transparent", border: `1px dashed ${C.border}`,
+                  borderRadius: 6, padding: "7px 10px", fontSize: 12, color: C.textMuted, cursor: "pointer", textAlign: "left"
+                }}>+ Add module</button>
+              )}
+            </div>
           </div>
 
           {/* Main content — all modules */}
@@ -314,13 +370,32 @@ export default function PlatformTracker() {
                       <div style={{ color: C.textSecondary, background: C.surfaceMid, padding: 7, borderRadius: 7, border: `1px solid ${C.border}`, display: "flex" }}>
                         <IconComp />
                       </div>
-                      <div>
-                        <div style={{ fontSize: 15, fontWeight: 700 }}>{m.name}</div>
-                        <div style={{ fontSize: 12, color: C.textMuted }}>{m.subtitle}</div>
-                      </div>
+                      {editingModuleId === m.id ? (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                          <input autoFocus value={editModuleName} onChange={e => setEditModuleName(e.target.value)}
+                            onKeyDown={e => { if (e.key === "Enter") commitEditModule(); if (e.key === "Escape") setEditingModuleId(null); }}
+                            style={{ background: C.surfaceMid, border: `1px solid ${C.borderBright}`, borderRadius: 5, padding: "3px 8px", fontSize: 14, fontWeight: 700, color: C.textPrimary, outline: "none", width: 200 }} />
+                          <input value={editModuleSubtitle} onChange={e => setEditModuleSubtitle(e.target.value)}
+                            onBlur={commitEditModule}
+                            onKeyDown={e => { if (e.key === "Enter") commitEditModule(); if (e.key === "Escape") setEditingModuleId(null); }}
+                            placeholder="Subtitle..."
+                            style={{ background: C.surfaceMid, border: `1px solid ${C.border}`, borderRadius: 5, padding: "2px 8px", fontSize: 12, color: C.textMuted, outline: "none", width: 200 }} />
+                        </div>
+                      ) : (
+                        <div>
+                          <div style={{ fontSize: 15, fontWeight: 700 }}>{m.name}</div>
+                          <div style={{ fontSize: 12, color: C.textMuted }}>{m.subtitle}</div>
+                        </div>
+                      )}
+                      <button onClick={() => startEditModule(m)} title="Edit module"
+                        style={{ background: "transparent", border: "none", color: C.textMuted, cursor: "pointer", fontSize: 13, padding: "2px 4px" }}>✎</button>
                     </div>
-                    {/* Project tags */}
+                    {/* Project tags + delete module */}
                     <div style={{ display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap" }}>
+                      <button onClick={() => deleteModule(m.id)} title="Delete module"
+                        style={{ background: "transparent", border: `1px solid ${C.border}`, borderRadius: 5, color: "#ef4444", cursor: "pointer", fontSize: 11, padding: "2px 7px", opacity: 0.6 }}>
+                        Delete
+                      </button>
                       {m.projects.map(proj => (
                         <span key={proj} style={{
                           display: "inline-flex", alignItems: "center", gap: 4,
@@ -370,7 +445,15 @@ export default function PlatformTracker() {
                         border: `1px solid ${task.status === "blocked" ? "#ef444428" : task.status === "inprogress" ? "#f59e0b22" : task.status === "done" ? "#10b98118" : C.border}`
                       }}>
                         <div style={{ width: 6, height: 6, borderRadius: "50%", background: PRIORITY[task.priority].color, flexShrink: 0 }} />
-                        <div style={{ flex: 1, fontSize: 13, color: task.status === "done" ? C.textMuted : C.textPrimary, textDecoration: task.status === "done" ? "line-through" : "none" }}>{task.text}</div>
+                        {editingTask?.mid === m.id && editingTask?.tid === task.id ? (
+                          <input autoFocus value={editTaskText} onChange={e => setEditTaskText(e.target.value)}
+                            onBlur={commitEditTask}
+                            onKeyDown={e => { if (e.key === "Enter") commitEditTask(); if (e.key === "Escape") setEditingTask(null); }}
+                            style={{ flex: 1, background: C.surfaceMid, border: `1px solid ${C.borderBright}`, borderRadius: 5, padding: "2px 7px", fontSize: 13, color: C.textPrimary, outline: "none" }} />
+                        ) : (
+                          <div onClick={() => startEditTask(m.id, task)} title="Click to edit"
+                            style={{ flex: 1, fontSize: 13, color: task.status === "done" ? C.textMuted : C.textPrimary, textDecoration: task.status === "done" ? "line-through" : "none", cursor: "text" }}>{task.text}</div>
+                        )}
                         <select value={task.priority} onChange={e => updateTask(m.id, task.id, { priority: e.target.value })}
                           style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 5, padding: "2px 5px", fontSize: 11, color: PRIORITY[task.priority].color, cursor: "pointer" }}>
                           {Object.entries(PRIORITY).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
