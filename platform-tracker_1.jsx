@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 const STATUS = {
   todo:       { label: "To Do",       color: "#8b8fa8", bg: "#2a2b36" },
@@ -119,6 +119,8 @@ export default function PlatformTracker() {
   const [selectedProject, setSelectedProject] = useState(null); // for projects view drill-in
   const [loading, setLoading]           = useState(true);
   const [saving, setSaving]             = useState(false);
+  const prevModulesRef  = useRef(null);
+  const initialLoadDone = useRef(false);
   const [editingTask, setEditingTask]   = useState(null); // { mid, tid }
   const [editTaskText, setEditTaskText] = useState("");
   const [editingModuleId, setEditingModuleId] = useState(null);
@@ -150,14 +152,50 @@ export default function PlatformTracker() {
 
   useEffect(() => {
     if (!modules) return;
-    setSaving(true);
-    fetch("/api/state", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ data: modules }),
-    })
-      .catch(console.error)
-      .finally(() => setTimeout(() => setSaving(false), 500));
+
+    // Skip saving on the initial load from DB
+    if (!initialLoadDone.current) {
+      prevModulesRef.current = modules;
+      initialLoadDone.current = true;
+      return;
+    }
+
+    const prev = prevModulesRef.current ?? [];
+    const saves = [];
+
+    modules.forEach((m, i) => {
+      const p = prev.find(x => x.id === m.id);
+      if (!p || JSON.stringify(p) !== JSON.stringify(m)) {
+        saves.push(
+          fetch("/api/module", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ module: m, position: i }),
+          })
+        );
+      }
+    });
+
+    prev.forEach(p => {
+      if (!modules.find(m => m.id === p.id)) {
+        saves.push(
+          fetch("/api/module", {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: p.id }),
+          })
+        );
+      }
+    });
+
+    if (saves.length > 0) {
+      setSaving(true);
+      Promise.all(saves)
+        .catch(console.error)
+        .finally(() => setTimeout(() => setSaving(false), 500));
+    }
+
+    prevModulesRef.current = modules;
   }, [modules]);
 
   // All unique projects across all modules
