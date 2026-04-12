@@ -115,14 +115,19 @@ export default function PlatformTracker() {
   useEffect(() => {
     (async () => {
       try {
-        const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
-        const merged = initialModules.map(m => {
-          const s = saved.find(x => x.id === m.id);
-          return s ? { ...m, tasks: s.tasks, projects: s.projects || [] } : m;
-        });
-        const maxId = merged.flatMap(m => m.tasks).reduce((max, t) => Math.max(max, t.id), 99);
-        nextTaskId = maxId + 1;
-        setModules(merged);
+        const res = await fetch("/api/state");
+        const { data: saved } = await res.json();
+        if (saved) {
+          const merged = initialModules.map(m => {
+            const s = saved.find(x => x.id === m.id);
+            return s ? { ...m, tasks: s.tasks, projects: s.projects || [] } : m;
+          });
+          const maxId = merged.flatMap(m => m.tasks).reduce((max, t) => Math.max(max, t.id), 99);
+          nextTaskId = maxId + 1;
+          setModules(merged);
+        } else {
+          setModules(initialModules);
+        }
       } catch { setModules(initialModules); }
       setLoading(false);
     })();
@@ -131,12 +136,13 @@ export default function PlatformTracker() {
   useEffect(() => {
     if (!modules) return;
     setSaving(true);
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(modules));
-    } catch (e) {
-      console.error(e);
-    }
-    setTimeout(() => setSaving(false), 500);
+    fetch("/api/state", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ data: modules }),
+    })
+      .catch(console.error)
+      .finally(() => setTimeout(() => setSaving(false), 500));
   }, [modules]);
 
   // All unique projects across all modules
