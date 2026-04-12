@@ -102,7 +102,12 @@ const projectColor = (name) => {
 export default function PlatformTracker() {
   const [modules, setModules]           = useState(null);
   const [view, setView]                 = useState("modules"); // "modules" | "projects"
-  const [activeModule, setActiveModule] = useState("blox");
+  const [activeModule, setActiveModule] = useState(() => window.location.hash.slice(1) || "blox");
+
+  const navigateTo = (id) => {
+    setActiveModule(id);
+    window.location.hash = id;
+  };
   const [filter, setFilter]             = useState("all");
   const [newTaskText, setNewTaskText]   = useState("");
   const [newPriority, setNewPriority]   = useState("medium");
@@ -214,11 +219,11 @@ export default function PlatformTracker() {
     <div style={{ fontFamily: "system-ui, -apple-system, sans-serif", background: C.bg, minHeight: "100vh", color: C.textPrimary }}>
 
       {/* Top nav */}
-      <div style={{ padding: "18px 24px 0", borderBottom: `1px solid ${C.border}` }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+      <div style={{ padding: "22px 32px 0", borderBottom: `1px solid ${C.border}` }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <h1 style={{ fontSize: 18, fontWeight: 700, margin: 0, letterSpacing: -0.5 }}>Module Tracker</h1>
-            <span style={{ fontSize: 11, color: saving ? C.textMuted : "#10b981" }}>{saving ? "saving..." : "✓"}</span>
+            <h1 style={{ fontSize: 21, fontWeight: 700, margin: 0, letterSpacing: -0.5 }}>Module Tracker</h1>
+            <span style={{ fontSize: 12, color: saving ? C.textMuted : "#10b981" }}>{saving ? "saving..." : "✓"}</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
             {/* Stats */}
@@ -230,8 +235,8 @@ export default function PlatformTracker() {
                 { label: "Done",     value: totals.done,       color: "#10b981" },
               ].map((s, i) => (
                 <div key={i} style={{ textAlign: "center" }}>
-                  <div style={{ fontSize: 18, fontWeight: 700, color: s.color }}>{s.value}</div>
-                  <div style={{ fontSize: 10, color: C.textMuted, textTransform: "uppercase", letterSpacing: 1 }}>{s.label}</div>
+                  <div style={{ fontSize: 22, fontWeight: 700, color: s.color }}>{s.value}</div>
+                  <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 1 }}>{s.label}</div>
                 </div>
               ))}
             </div>
@@ -244,7 +249,7 @@ export default function PlatformTracker() {
                 <button key={v.id} onClick={() => { setView(v.id); setSelectedProject(null); }} style={{
                   background: view === v.id ? C.surfaceHigh : "transparent",
                   border: `1px solid ${view === v.id ? C.borderBright : "transparent"}`,
-                  borderRadius: 5, padding: "4px 14px", fontSize: 12,
+                  borderRadius: 5, padding: "5px 16px", fontSize: 13,
                   color: view === v.id ? C.textPrimary : C.textMuted, cursor: "pointer", fontWeight: view === v.id ? 600 : 400
                 }}>{v.label}</button>
               ))}
@@ -261,17 +266,17 @@ export default function PlatformTracker() {
               const accent = s.blocked > 0 ? "#ef4444" : s.inprogress > 0 ? "#f59e0b" : (s.total > 0 && s.done === s.total) ? "#10b981" : null;
               const IconComp = Icons[m.icon] || Icons.Utils;
               return (
-                <button key={m.id} onClick={() => { setActiveModule(m.id); setFilter("all"); setShowProjectInput(false); }} style={{
+                <button key={m.id} onClick={() => { navigateTo(m.id); setFilter("all"); setShowProjectInput(false); }} style={{
                   flexShrink: 0, background: isActive ? C.surfaceMid : "transparent",
                   border: `1px solid ${isActive ? (accent || C.borderBright) : C.border}`,
                   borderBottom: isActive ? `2px solid ${accent || C.borderBright}` : `1px solid ${C.border}`,
-                  borderRadius: "6px 6px 0 0", padding: "7px 11px 9px", cursor: "pointer", minWidth: 82,
+                  borderRadius: "6px 6px 0 0", padding: "9px 14px 11px", cursor: "pointer", minWidth: 96,
                 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 5, color: isActive ? C.textPrimary : C.textMuted }}>
                     <IconComp />
-                    <span style={{ fontSize: 12, fontWeight: 600, whiteSpace: "nowrap" }}>{m.name}</span>
+                    <span style={{ fontSize: 13, fontWeight: 600, whiteSpace: "nowrap" }}>{m.name}</span>
                   </div>
-                  <div style={{ fontSize: 10, color: C.textMuted, marginTop: 2, paddingLeft: 19 }}>
+                  <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2, paddingLeft: 19 }}>
                     {s.total === 0 ? "—" : `${s.done}/${s.total}`}
                     {m.projects.length > 0 && <span style={{ color: C.textMuted }}> · {m.projects.length}p</span>}
                   </div>
@@ -284,7 +289,7 @@ export default function PlatformTracker() {
 
       {/* ── MODULES VIEW ── */}
       {view === "modules" && active && (
-        <div style={{ padding: 24, maxWidth: 720 }}>
+        <div style={{ padding: "28px 32px", maxWidth: 860 }}>
           {/* Module header */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -292,8 +297,8 @@ export default function PlatformTracker() {
                 {(() => { const I = Icons[active.icon] || Icons.Utils; return <I />; })()}
               </div>
               <div>
-                <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>{active.name}</h2>
-                <p style={{ fontSize: 12, color: C.textMuted, margin: "2px 0 0" }}>{active.subtitle}</p>
+                <h2 style={{ fontSize: 19, fontWeight: 700, margin: 0 }}>{active.name}</h2>
+                <p style={{ fontSize: 13, color: C.textMuted, margin: "2px 0 0" }}>{active.subtitle}</p>
               </div>
             </div>
             <div style={{ display: "flex", gap: 4 }}>
@@ -502,7 +507,7 @@ export default function PlatformTracker() {
                           {s.inprogress > 0 && <span style={{ color: "#f59e0b" }}>{s.inprogress} active</span>}
                           <span style={{ color: C.textMuted }}>{s.done}/{s.total} done</span>
                         </div>
-                        <button onClick={() => { setView("modules"); setActiveModule(m.id); }} style={{
+                        <button onClick={() => { setView("modules"); navigateTo(m.id); }} style={{
                           background: "transparent", border: `1px solid ${C.border}`, borderRadius: 5,
                           padding: "3px 8px", fontSize: 11, color: C.textMuted, cursor: "pointer"
                         }}>Open →</button>
