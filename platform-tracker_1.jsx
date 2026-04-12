@@ -115,8 +115,7 @@ export default function PlatformTracker() {
   useEffect(() => {
     (async () => {
       try {
-        const r = await window.storage.get(STORAGE_KEY);
-        const saved = JSON.parse(r.value);
+        const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
         const merged = initialModules.map(m => {
           const s = saved.find(x => x.id === m.id);
           return s ? { ...m, tasks: s.tasks, projects: s.projects || [] } : m;
@@ -132,9 +131,12 @@ export default function PlatformTracker() {
   useEffect(() => {
     if (!modules) return;
     setSaving(true);
-    window.storage.set(STORAGE_KEY, JSON.stringify(modules))
-      .catch(console.error)
-      .finally(() => setTimeout(() => setSaving(false), 500));
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(modules));
+    } catch (e) {
+      console.error(e);
+    }
+    setTimeout(() => setSaving(false), 500);
   }, [modules]);
 
   // All unique projects across all modules
