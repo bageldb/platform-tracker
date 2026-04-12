@@ -123,6 +123,7 @@ export default function PlatformTracker() {
   const initialLoadDone = useRef(false);
   const [editingTask, setEditingTask]   = useState(null); // { mid, tid }
   const [editTaskText, setEditTaskText] = useState("");
+  const [expandedTask, setExpandedTask] = useState(null); // "mid:tid"
   const [editingModuleId, setEditingModuleId] = useState(null);
   const [editModuleName, setEditModuleName]   = useState("");
   const [editModuleSubtitle, setEditModuleSubtitle] = useState("");
@@ -476,34 +477,64 @@ export default function PlatformTracker() {
                     {mFiltered.length === 0 && filter === "all" && (
                       <div style={{ color: C.textMuted, fontSize: 12, padding: "6px 0" }}>No tasks yet</div>
                     )}
-                    {mFiltered.map(task => (
-                      <div key={task.id} style={{
-                        background: C.surface, borderRadius: 7, padding: "9px 12px",
-                        display: "flex", alignItems: "center", gap: 10,
-                        border: `1px solid ${task.status === "blocked" ? "#ef444428" : task.status === "inprogress" ? "#f59e0b22" : task.status === "done" ? "#10b98118" : C.border}`
-                      }}>
-                        <div style={{ width: 6, height: 6, borderRadius: "50%", background: PRIORITY[task.priority].color, flexShrink: 0 }} />
-                        {editingTask?.mid === m.id && editingTask?.tid === task.id ? (
-                          <input autoFocus value={editTaskText} onChange={e => setEditTaskText(e.target.value)}
-                            onBlur={commitEditTask}
-                            onKeyDown={e => { if (e.key === "Enter") commitEditTask(); if (e.key === "Escape") setEditingTask(null); }}
-                            style={{ flex: 1, background: C.surfaceMid, border: `1px solid ${C.borderBright}`, borderRadius: 5, padding: "2px 7px", fontSize: 13, color: C.textPrimary, outline: "none" }} />
-                        ) : (
-                          <div onClick={() => startEditTask(m.id, task)} title="Click to edit"
-                            style={{ flex: 1, fontSize: 13, color: task.status === "done" ? C.textMuted : C.textPrimary, textDecoration: task.status === "done" ? "line-through" : "none", cursor: "text" }}>{task.text}</div>
-                        )}
-                        <select value={task.priority} onChange={e => updateTask(m.id, task.id, { priority: e.target.value })}
-                          style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 5, padding: "2px 5px", fontSize: 11, color: PRIORITY[task.priority].color, cursor: "pointer" }}>
-                          {Object.entries(PRIORITY).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-                        </select>
-                        <select value={task.status} onChange={e => updateTask(m.id, task.id, { status: e.target.value })}
-                          style={{ background: STATUS[task.status].bg, border: `1px solid ${STATUS[task.status].color}45`, borderRadius: 5, padding: "2px 7px", fontSize: 11, color: STATUS[task.status].color, cursor: "pointer" }}>
-                          {Object.entries(STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-                        </select>
-                        <button onClick={() => deleteTask(m.id, task.id)}
-                          style={{ background: "transparent", border: "none", color: C.textMuted, cursor: "pointer", fontSize: 16, lineHeight: 1, padding: "0 2px" }}>×</button>
-                      </div>
-                    ))}
+                    {mFiltered.map(task => {
+                      const key = `${m.id}:${task.id}`;
+                      const isExpanded = expandedTask === key;
+                      const borderColor = task.status === "blocked" ? "#ef444428" : task.status === "inprogress" ? "#f59e0b22" : task.status === "done" ? "#10b98118" : C.border;
+                      return (
+                        <div key={task.id} style={{ background: C.surface, borderRadius: 7, border: `1px solid ${borderColor}` }}>
+                          {/* Main row */}
+                          <div style={{ padding: "9px 12px", display: "flex", alignItems: "center", gap: 10 }}>
+                            <div style={{ width: 6, height: 6, borderRadius: "50%", background: PRIORITY[task.priority].color, flexShrink: 0 }} />
+                            {editingTask?.mid === m.id && editingTask?.tid === task.id ? (
+                              <input autoFocus value={editTaskText} onChange={e => setEditTaskText(e.target.value)}
+                                onBlur={commitEditTask}
+                                onKeyDown={e => { if (e.key === "Enter") commitEditTask(); if (e.key === "Escape") setEditingTask(null); }}
+                                style={{ flex: 1, background: C.surfaceMid, border: `1px solid ${C.borderBright}`, borderRadius: 5, padding: "2px 7px", fontSize: 13, color: C.textPrimary, outline: "none" }} />
+                            ) : (
+                              <div onClick={() => startEditTask(m.id, task)} title="Click to edit"
+                                style={{ flex: 1, fontSize: 13, color: task.status === "done" ? C.textMuted : C.textPrimary, textDecoration: task.status === "done" ? "line-through" : "none", cursor: "text" }}>
+                                {task.text}
+                                {task.description && !isExpanded && (
+                                  <span style={{ marginLeft: 8, fontSize: 11, color: C.textMuted }}>· has notes</span>
+                                )}
+                              </div>
+                            )}
+                            <select value={task.priority} onChange={e => updateTask(m.id, task.id, { priority: e.target.value })}
+                              style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 5, padding: "2px 5px", fontSize: 11, color: PRIORITY[task.priority].color, cursor: "pointer" }}>
+                              {Object.entries(PRIORITY).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                            </select>
+                            <select value={task.status} onChange={e => updateTask(m.id, task.id, { status: e.target.value })}
+                              style={{ background: STATUS[task.status].bg, border: `1px solid ${STATUS[task.status].color}45`, borderRadius: 5, padding: "2px 7px", fontSize: 11, color: STATUS[task.status].color, cursor: "pointer" }}>
+                              {Object.entries(STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                            </select>
+                            <button onClick={() => setExpandedTask(isExpanded ? null : key)} title={isExpanded ? "Collapse" : "Add notes"}
+                              style={{ background: "transparent", border: "none", color: isExpanded || task.description ? C.textSecondary : C.textMuted, cursor: "pointer", fontSize: 13, padding: "0 2px", lineHeight: 1 }}>
+                              {isExpanded ? "▾" : "▸"}
+                            </button>
+                            <button onClick={() => deleteTask(m.id, task.id)}
+                              style={{ background: "transparent", border: "none", color: C.textMuted, cursor: "pointer", fontSize: 16, lineHeight: 1, padding: "0 2px" }}>×</button>
+                          </div>
+                          {/* Description panel */}
+                          {isExpanded && (
+                            <div style={{ padding: "0 12px 10px 28px", borderTop: `1px solid ${C.border}20` }}>
+                              <textarea
+                                autoFocus
+                                value={task.description ?? ""}
+                                onChange={e => updateTask(m.id, task.id, { description: e.target.value })}
+                                placeholder="Add notes or details..."
+                                rows={3}
+                                style={{
+                                  width: "100%", background: "transparent", border: "none", resize: "vertical",
+                                  color: C.textSecondary, fontSize: 12, lineHeight: 1.6, outline: "none",
+                                  fontFamily: "inherit", marginTop: 8, padding: 0,
+                                }}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
 
                   {/* Add task row */}
