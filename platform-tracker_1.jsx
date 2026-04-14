@@ -228,7 +228,7 @@ export default function PlatformTracker() {
   const [expandedProjTask, setExpandedProjTask] = useState(null); // "proj:tid"
   const [editingProjTask, setEditingProjTask]   = useState(null); // { proj, tid }
   const [editProjTaskText, setEditProjTaskText] = useState("");
-  const [chatOpen, setChatOpen]             = useState(false);
+  const [chatOpen, setChatOpen]             = useState(true);
   const [chatMessages, setChatMessages]     = useState([]);
   const [chatInput, setChatInput]           = useState("");
   const [chatLoading, setChatLoading]       = useState(false);
