@@ -103,24 +103,69 @@ const projectColor = (name) => {
   return colors[Math.abs(h) % colors.length];
 };
 
+// ── URL routing helpers ──────────────────────────────────────────────
+// URL scheme (hash-based, no server config needed):
+//   #modules/blox          → modules view, active module = blox
+//   #projects              → projects list
+//   #projects/My%20Project → project drill-in
+
+function parseHash() {
+  const hash = window.location.hash.slice(1) || "modules/blox";
+  const [segment, ...rest] = hash.split("/");
+  const sub = rest.join("/") ? decodeURIComponent(rest.join("/")) : null;
+  if (segment === "projects") return { view: "projects", activeModule: "blox", selectedProject: sub };
+  return { view: "modules", activeModule: sub || "blox", selectedProject: null };
+}
+
+function buildHash(view, activeModule, selectedProject) {
+  if (view === "projects") {
+    return selectedProject ? `#projects/${encodeURIComponent(selectedProject)}` : "#projects";
+  }
+  return `#modules/${activeModule}`;
+}
+// ────────────────────────────────────────────────────────────────────
+
 export default function PlatformTracker() {
   const [modules, setModules]           = useState(null);
-  const [view, setView]                 = useState("modules"); // "modules" | "projects"
-  const [activeModule, setActiveModule] = useState(() => window.location.hash.slice(1) || "blox");
+
+  const initial = parseHash();
+  const [view, setView]                 = useState(initial.view);
+  const [activeModule, setActiveModule] = useState(initial.activeModule);
+  const [selectedProject, setSelectedProject] = useState(initial.selectedProject);
+
+  // Keep URL in sync with state
+  useEffect(() => {
+    const hash = buildHash(view, activeModule, selectedProject);
+    if (window.location.hash !== hash) {
+      window.history.pushState(null, "", hash);
+    }
+  }, [view, activeModule, selectedProject]);
+
+  // Handle browser back/forward
+  useEffect(() => {
+    const onPop = () => {
+      const { view: v, activeModule: m, selectedProject: p } = parseHash();
+      setView(v);
+      setActiveModule(m);
+      setSelectedProject(p);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
 
   const navigateTo = (id) => {
+    setView("modules");
     setActiveModule(id);
-    window.location.hash = id;
     setTimeout(() => {
       document.getElementById(`module-${id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 0);
   };
+
   const [filter, setFilter]             = useState("all");
   const [newTaskText, setNewTaskText]   = useState("");
   const [newPriority, setNewPriority]   = useState("medium");
   const [newProjectName, setNewProjectName] = useState("");
   const [showProjectInput, setShowProjectInput] = useState(false);
-  const [selectedProject, setSelectedProject] = useState(null); // for projects view drill-in
   const [loading, setLoading]           = useState(true);
   const [saving, setSaving]             = useState(false);
   const prevModulesRef  = useRef(null);
@@ -495,7 +540,7 @@ export default function PlatformTracker() {
           </div>
           <div style={{ display: "flex", gap: 4, background: C.surfaceMid, padding: 3, borderRadius: 7, border: `1px solid ${C.border}` }}>
             {[{ id: "modules", label: "Modules" }, { id: "projects", label: "Projects" }].map(v => (
-              <button key={v.id} onClick={() => { setView(v.id); setSelectedProject(null); }} style={{
+              <button key={v.id} onClick={() => { setView(v.id); setSelectedProject(null); setFilter("all"); }} style={{
                 background: view === v.id ? C.surfaceHigh : "transparent",
                 border: `1px solid ${view === v.id ? C.borderBright : "transparent"}`,
                 borderRadius: 5, padding: "5px 16px", fontSize: 13,
