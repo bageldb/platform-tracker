@@ -228,11 +228,89 @@ export default function PlatformTracker() {
   const [expandedProjTask, setExpandedProjTask] = useState(null); // "proj:tid"
   const [editingProjTask, setEditingProjTask]   = useState(null); // { proj, tid }
   const [editProjTaskText, setEditProjTaskText] = useState("");
-  const [chatOpen, setChatOpen]         = useState(false);
-  const [chatMessages, setChatMessages] = useState([]); // { role, text, toolCalls? }
-  const [chatInput, setChatInput]       = useState("");
-  const [chatLoading, setChatLoading]   = useState(false);
+  const [chatOpen, setChatOpen]             = useState(false);
+  const [chatMessages, setChatMessages]     = useState([]);
+  const [chatInput, setChatInput]           = useState("");
+  const [chatLoading, setChatLoading]       = useState(false);
+  const [chatView, setChatView]             = useState("chat"); // "chat" | "history"
+  const [conversations, setConversations]   = useState([]);    // list metadata
+  const [convId, setConvId]                 = useState(() => crypto.randomUUID());
+  const [convTitle, setConvTitle]           = useState("");
+  const [convsLoading, setConvsLoading]     = useState(false);
   const chatEndRef = useRef(null);
+  const convSaveTimer = useRef(null);
+
+  // Auto-generate title from first user message
+  useEffect(() => {
+    if (!convTitle && chatMessages.length > 0) {
+      const first = chatMessages.find(m => m.role === "user");
+      if (first) setConvTitle(first.text.slice(0, 60).replace(/\n/g, " "));
+    }
+  }, [chatMessages]);
+
+  // Debounced save after each message
+  useEffect(() => {
+    if (chatMessages.length === 0) return;
+    const hasComplete = chatMessages.some(m => m.role === "assistant" && !m.streaming);
+    if (!hasComplete) return;
+    clearTimeout(convSaveTimer.current);
+    convSaveTimer.current = setTimeout(() => saveConversation(), 1500);
+  }, [chatMessages]);
+
+  const saveConversation = async () => {
+    const title = convTitle || chatMessages.find(m => m.role === "user")?.text?.slice(0, 60) || "Untitled";
+    const clean = chatMessages.filter(m => !m.streaming).map(({ role, text, toolCalls }) => ({ role, text, toolCalls }));
+    if (clean.length === 0) return;
+    await authFetch("/api/conversations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: convId, title, messages: clean }),
+    });
+  };
+
+  const loadConversations = async () => {
+    setConvsLoading(true);
+    try {
+      const res = await authFetch("/api/conversations");
+      const { conversations: list } = await res.json();
+      setConversations(list ?? []);
+    } finally {
+      setConvsLoading(false);
+    }
+  };
+
+  const openConversation = async (id) => {
+    const res = await authFetch(`/api/conversations?id=${id}`);
+    const { conversation } = await res.json();
+    setConvId(conversation.id);
+    setConvTitle(conversation.title);
+    setChatMessages(conversation.messages ?? []);
+    setChatView("chat");
+    setTimeout(() => chatEndRef.current?.scrollIntoView(), 50);
+  };
+
+  const deleteConversation = async (id, e) => {
+    e.stopPropagation();
+    await authFetch("/api/conversations", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+    setConversations(p => p.filter(c => c.id !== id));
+    if (id === convId) newConversation();
+  };
+
+  const newConversation = () => {
+    setConvId(crypto.randomUUID());
+    setConvTitle("");
+    setChatMessages([]);
+    setChatView("chat");
+  };
+
+  const openHistory = () => {
+    setChatView("history");
+    loadConversations();
+  };
 
   const [editingModuleId, setEditingModuleId] = useState(null);
   const [editModuleName, setEditModuleName]   = useState("");
@@ -1061,19 +1139,60 @@ export default function PlatformTracker() {
 
       {/* ── CHAT PANEL ── */}
       {chatOpen && (
-        <div style={{ width: 360, borderLeft: `1px solid ${C.border}`, display: "flex", flexDirection: "column", flexShrink: 0 }}>
+        <div style={{ width: 380, borderLeft: `1px solid ${C.border}`, display: "flex", flexDirection: "column", flexShrink: 0 }}>
           {/* Chat header */}
-          <div style={{ padding: "14px 16px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: 8 }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: C.textPrimary }}>AI Assistant</div>
-              <div style={{ fontSize: 11, color: C.textMuted }}>Paste emails, transcripts, or ask anything</div>
-            </div>
-            <button onClick={() => setChatMessages([])} title="Clear chat"
-              style={{ background: "transparent", border: "none", color: C.textMuted, cursor: "pointer", fontSize: 11 }}>Clear</button>
+          <div style={{ padding: "10px 14px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: 6 }}>
+            {chatView === "history" ? (
+              <>
+                <button onClick={() => setChatView("chat")} style={{ background: "transparent", border: "none", color: C.textMuted, cursor: "pointer", fontSize: 18, lineHeight: 1, padding: "0 4px 0 0" }}>←</button>
+                <div style={{ flex: 1, fontSize: 13, fontWeight: 700, color: C.textPrimary }}>Conversations</div>
+                <button onClick={newConversation} style={{ background: "#7c6af720", border: "1px solid #7c6af740", borderRadius: 6, color: "#a593ff", cursor: "pointer", fontSize: 11, padding: "3px 10px", fontWeight: 600 }}>+ New</button>
+              </>
+            ) : (
+              <>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: C.textPrimary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {convTitle || "AI Assistant"}
+                  </div>
+                  <div style={{ fontSize: 11, color: C.textMuted }}>Paste emails, transcripts, or ask anything</div>
+                </div>
+                <button onClick={openHistory} title="History" style={{ background: "transparent", border: "none", color: C.textMuted, cursor: "pointer", fontSize: 13, padding: "2px 5px" }}>🕐</button>
+                <button onClick={newConversation} title="New chat" style={{ background: "transparent", border: "none", color: C.textMuted, cursor: "pointer", fontSize: 18, lineHeight: 1, padding: "0 2px" }}>✏️</button>
+              </>
+            )}
           </div>
 
-          {/* Messages */}
-          <div style={{ flex: 1, overflowY: "auto", padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
+          {/* ── History view ── */}
+          {chatView === "history" && (
+            <div style={{ flex: 1, overflowY: "auto", padding: "8px 10px", display: "flex", flexDirection: "column", gap: 4 }}>
+              {convsLoading && <div style={{ color: C.textMuted, fontSize: 12, textAlign: "center", marginTop: 30 }}>Loading…</div>}
+              {!convsLoading && conversations.length === 0 && (
+                <div style={{ color: C.textMuted, fontSize: 12, textAlign: "center", marginTop: 40 }}>No saved conversations yet.</div>
+              )}
+              {conversations.map(c => (
+                <div key={c.id} onClick={() => openConversation(c.id)} style={{
+                  padding: "10px 12px", borderRadius: 8, cursor: "pointer",
+                  background: c.id === convId ? C.surfaceHigh : C.surfaceMid,
+                  border: `1px solid ${c.id === convId ? C.borderBright : C.border}`,
+                  display: "flex", alignItems: "center", gap: 8,
+                }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: C.textPrimary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.title}</div>
+                    <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>
+                      {new Date(c.updated_at).toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                    </div>
+                  </div>
+                  <button onClick={(e) => deleteConversation(c.id, e)} style={{
+                    background: "transparent", border: "none", color: C.textMuted, cursor: "pointer",
+                    fontSize: 15, lineHeight: 1, padding: "2px 4px", flexShrink: 0, opacity: 0.5,
+                  }}>×</button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* ── Chat messages ── */}
+          {chatView === "chat" && <div style={{ flex: 1, overflowY: "auto", padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
             {chatMessages.length === 0 && (
               <div style={{ color: C.textMuted, fontSize: 12, textAlign: "center", marginTop: 40, lineHeight: 1.7 }}>
                 Paste an email or meeting transcript and I'll extract tasks and add them for you.
@@ -1192,10 +1311,10 @@ export default function PlatformTracker() {
               </div>
             )}
             <div ref={chatEndRef} />
-          </div>
+          </div>}
 
-          {/* Input */}
-          <div style={{ padding: "10px 12px", borderTop: `1px solid ${C.border}` }}>
+          {/* Input — only in chat view */}
+          {chatView === "chat" && <div style={{ padding: "10px 12px", borderTop: `1px solid ${C.border}` }}>
             <textarea
               value={chatInput}
               onChange={e => setChatInput(e.target.value)}
@@ -1216,7 +1335,7 @@ export default function PlatformTracker() {
             }}>
               {chatLoading ? "Thinking…" : "Send"}
             </button>
-          </div>
+          </div>}
         </div>
       )}
 
