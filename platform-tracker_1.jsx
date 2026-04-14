@@ -130,6 +130,12 @@ export default function PlatformTracker() {
   const [expandedProjTask, setExpandedProjTask] = useState(null); // "proj:tid"
   const [editingProjTask, setEditingProjTask]   = useState(null); // { proj, tid }
   const [editProjTaskText, setEditProjTaskText] = useState("");
+  const [chatOpen, setChatOpen]         = useState(false);
+  const [chatMessages, setChatMessages] = useState([]); // { role, text, toolCalls? }
+  const [chatInput, setChatInput]       = useState("");
+  const [chatLoading, setChatLoading]   = useState(false);
+  const chatEndRef = useRef(null);
+
   const [editingModuleId, setEditingModuleId] = useState(null);
   const [editModuleName, setEditModuleName]   = useState("");
   const [editModuleSubtitle, setEditModuleSubtitle] = useState("");
@@ -287,6 +293,76 @@ export default function PlatformTracker() {
   const deleteProjectTask = (proj, tid) =>
     setProjectTasks(p => ({ ...p, [proj]: (p[proj] ?? []).filter(t => t.id !== tid) }));
 
+  const executeToolCall = ({ name, input }) => {
+    switch (name) {
+      case "add_module_task":
+        setModules(p => p.map(m => m.id === input.moduleId
+          ? { ...m, tasks: [...m.tasks, { id: nextTaskId++, text: input.text, status: "todo", priority: input.priority, description: input.description ?? "" }] }
+          : m));
+        break;
+      case "update_module_task":
+        setModules(p => p.map(m => m.id === input.moduleId
+          ? { ...m, tasks: m.tasks.map(t => t.id === input.taskId ? { ...t, ...input } : t) }
+          : m));
+        break;
+      case "add_project_task":
+        setProjectTasks(p => ({ ...p, [input.project]: [...(p[input.project] ?? []), { id: Date.now() + Math.random(), text: input.text, status: "todo", priority: input.priority, description: input.description ?? "" }] }));
+        break;
+      case "update_project_task":
+        setProjectTasks(p => ({ ...p, [input.project]: (p[input.project] ?? []).map(t => t.id === input.taskId ? { ...t, ...input } : t) }));
+        break;
+      case "add_project_to_module":
+        setModules(p => p.map(m => m.id === input.moduleId
+          ? { ...m, projects: m.projects.includes(input.project) ? m.projects : [...m.projects, input.project] }
+          : m));
+        break;
+      default:
+        break;
+    }
+  };
+
+  const sendChatMessage = async () => {
+    const text = chatInput.trim();
+    if (!text || chatLoading) return;
+    setChatInput("");
+
+    const userMsg = { role: "user", text };
+    setChatMessages(p => [...p, userMsg]);
+    setChatLoading(true);
+
+    const apiMessages = [...chatMessages, userMsg]
+      .map(m => ({ role: m.role === "user" ? "user" : "assistant", content: m.text }));
+
+    const state = {
+      modules: modules.map(m => ({
+        id: m.id, name: m.name, subtitle: m.subtitle, projects: m.projects,
+        tasks: m.tasks.map(t => ({ id: t.id, text: t.text, status: t.status, priority: t.priority, description: t.description })),
+      })),
+      projectTasks: Object.fromEntries(
+        Object.entries(projectTasks).map(([proj, tasks]) => [proj, tasks.map(t => ({ id: t.id, text: t.text, status: t.status, priority: t.priority }))])
+      ),
+    };
+
+    try {
+      const res = await fetch("/api/ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: apiMessages, state }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+
+      (data.toolCalls ?? []).forEach(executeToolCall);
+
+      setChatMessages(p => [...p, { role: "assistant", text: data.text, toolCalls: data.toolCalls ?? [] }]);
+    } catch (err) {
+      setChatMessages(p => [...p, { role: "assistant", text: `Error: ${err.message}`, toolCalls: [] }]);
+    } finally {
+      setChatLoading(false);
+      setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
+    }
+  };
+
   const stats = (m) => ({
     total:      m.tasks.length,
     done:       m.tasks.filter(t => t.status === "done").length,
@@ -355,8 +431,20 @@ export default function PlatformTracker() {
               }}>{v.label}</button>
             ))}
           </div>
+          <button onClick={() => setChatOpen(o => !o)} style={{
+            background: chatOpen ? "#7c6af7" : C.surfaceMid, border: `1px solid ${chatOpen ? "#7c6af7" : C.border}`,
+            borderRadius: 7, padding: "6px 14px", fontSize: 13, color: chatOpen ? "#fff" : C.textSecondary,
+            cursor: "pointer", fontWeight: 600, display: "flex", alignItems: "center", gap: 6,
+          }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            AI
+          </button>
         </div>
       </div>
+
+      {/* ── BODY (views + chat panel) ── */}
+      <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
+      <div style={{ display: "flex", flex: 1, overflow: "hidden", flexDirection: "column" }}>
 
       {/* ── MODULES VIEW ── */}
       {view === "modules" && (
@@ -791,6 +879,93 @@ export default function PlatformTracker() {
           )}
         </div>
       )}
+
+      </div>{/* end views column */}
+
+      {/* ── CHAT PANEL ── */}
+      {chatOpen && (
+        <div style={{ width: 360, borderLeft: `1px solid ${C.border}`, display: "flex", flexDirection: "column", flexShrink: 0 }}>
+          {/* Chat header */}
+          <div style={{ padding: "14px 16px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: C.textPrimary }}>AI Assistant</div>
+              <div style={{ fontSize: 11, color: C.textMuted }}>Paste emails, transcripts, or ask anything</div>
+            </div>
+            <button onClick={() => setChatMessages([])} title="Clear chat"
+              style={{ background: "transparent", border: "none", color: C.textMuted, cursor: "pointer", fontSize: 11 }}>Clear</button>
+          </div>
+
+          {/* Messages */}
+          <div style={{ flex: 1, overflowY: "auto", padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
+            {chatMessages.length === 0 && (
+              <div style={{ color: C.textMuted, fontSize: 12, textAlign: "center", marginTop: 40, lineHeight: 1.7 }}>
+                Paste an email or meeting transcript and I'll extract tasks and add them for you.
+                <br /><br />
+                Or ask me to help prioritize, plan, or update existing tasks.
+              </div>
+            )}
+            {chatMessages.map((msg, i) => (
+              <div key={i} style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: msg.role === "user" ? "flex-end" : "flex-start" }}>
+                <div style={{
+                  maxWidth: "92%", padding: "9px 12px", borderRadius: msg.role === "user" ? "12px 12px 3px 12px" : "12px 12px 12px 3px",
+                  background: msg.role === "user" ? "#7c6af7" : C.surfaceMid,
+                  border: msg.role === "user" ? "none" : `1px solid ${C.border}`,
+                  fontSize: 13, color: msg.role === "user" ? "#fff" : C.textPrimary,
+                  lineHeight: 1.55, whiteSpace: "pre-wrap", wordBreak: "break-word",
+                }}>
+                  {msg.text}
+                </div>
+                {msg.toolCalls?.length > 0 && (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4, maxWidth: "92%" }}>
+                    {msg.toolCalls.map((tc, j) => (
+                      <span key={j} style={{
+                        fontSize: 10, padding: "2px 7px", borderRadius: 99,
+                        background: "#7c6af720", border: "1px solid #7c6af740", color: "#7c6af7",
+                      }}>
+                        {tc.name.replace(/_/g, " ")} {tc.input.moduleId ?? tc.input.project ?? ""}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+            {chatLoading && (
+              <div style={{ display: "flex", alignItems: "center", gap: 6, color: C.textMuted, fontSize: 12 }}>
+                <span style={{ animation: "pulse 1.2s infinite" }}>●</span>
+                <span style={{ animation: "pulse 1.2s infinite 0.2s" }}>●</span>
+                <span style={{ animation: "pulse 1.2s infinite 0.4s" }}>●</span>
+              </div>
+            )}
+            <div ref={chatEndRef} />
+          </div>
+
+          {/* Input */}
+          <div style={{ padding: "10px 12px", borderTop: `1px solid ${C.border}` }}>
+            <textarea
+              value={chatInput}
+              onChange={e => setChatInput(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendChatMessage(); } }}
+              placeholder={"Paste an email, transcript, or ask a question...\n(Enter to send, Shift+Enter for new line)"}
+              rows={4}
+              style={{
+                width: "100%", background: C.surfaceMid, border: `1px solid ${C.border}`,
+                borderRadius: 8, padding: "9px 11px", color: C.textPrimary, fontSize: 13,
+                lineHeight: 1.5, resize: "none", outline: "none", fontFamily: "inherit",
+                boxSizing: "border-box",
+              }}
+            />
+            <button onClick={sendChatMessage} disabled={chatLoading || !chatInput.trim()} style={{
+              marginTop: 6, width: "100%", background: chatLoading || !chatInput.trim() ? C.surfaceHigh : "#7c6af7",
+              border: "none", borderRadius: 7, padding: "8px 0", fontSize: 13, fontWeight: 600,
+              color: chatLoading || !chatInput.trim() ? C.textMuted : "#fff", cursor: chatLoading || !chatInput.trim() ? "default" : "pointer",
+            }}>
+              {chatLoading ? "Thinking…" : "Send"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      </div>{/* end body flex row */}
     </div>
   );
 }
