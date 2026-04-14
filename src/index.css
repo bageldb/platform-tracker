@@ -1,0 +1,59 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+  --color-background: #0f0f13;
+  --color-foreground: #e2e2ea;
+  --color-card: #16161e;
+  --color-card-foreground: #e2e2ea;
+  --color-popover: #16161e;
+  --color-popover-foreground: #e2e2ea;
+  --color-primary: #7c6af7;
+  --color-primary-foreground: #ffffff;
+  --color-secondary: #1e1e2a;
+  --color-secondary-foreground: #a0a0b8;
+  --color-muted: #1e1e2a;
+  --color-muted-foreground: #6b6b84;
+  --color-accent: #7c6af720;
+  --color-accent-foreground: #a593ff;
+  --color-destructive: #e05c5c;
+  --color-destructive-foreground: #fff;
+  --color-border: #2a2a38;
+  --color-input: #1e1e2a;
+  --color-ring: #7c6af7;
+  --color-surface: #13131a;
+  --color-surface-mid: #1a1a24;
+  --color-surface-high: #22222e;
+  --radius: 0.5rem;
+
+  /* status colors */
+  --color-status-todo: #8b8fa8;
+  --color-status-inprogress: #e6a817;
+  --color-status-done: #3ec9a7;
+  --color-status-blocked: #e05c5c;
+  --color-priority-high: #ef4444;
+  --color-priority-medium: #f59e0b;
+  --color-priority-low: #636580;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+    box-sizing: border-box;
+  }
+  body {
+    @apply bg-background text-foreground;
+    margin: 0;
+    font-family: system-ui, -apple-system, sans-serif;
+  }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.2; }
+  50% { opacity: 1; }
+}
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}

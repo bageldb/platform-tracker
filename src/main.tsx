@@ -1,8 +1,9 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import PlatformTracker from "../platform-tracker_1.jsx";
+import "./index.css";
+import PlatformTracker from "./PlatformTracker";
 
-createRoot(document.getElementById("root")).render(
+createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <PlatformTracker />
   </StrictMode>
