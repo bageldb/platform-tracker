@@ -439,6 +439,9 @@ export default function PlatformTracker() {
       projectTasks: Object.fromEntries(
         Object.entries(projectTasks).map(([proj, tasks]) => [proj, tasks.map(t => ({ id: t.id, text: t.text, status: t.status, priority: t.priority }))])
       ),
+      focus: view === "projects"
+        ? { type: "project", name: selectedProject ?? null }
+        : { type: "module", id: activeModule },
     };
 
     // Add a placeholder assistant message we'll stream into

@@ -84,6 +84,15 @@ function buildSystem(state) {
       `- ${proj}:\n` + tasks.map(t => `    • [${t.id}] ${t.text} [${t.status}/${t.priority}]`).join("\n")
     ).join("\n") || "  (none)";
 
+  const focus = state.focus;
+  let focusLine = "";
+  if (focus?.type === "module" && focus.id) {
+    const m = state.modules.find(m => m.id === focus.id);
+    focusLine = `\n## User's current focus\nModule: ${m ? `${m.name} (id: "${m.id}")` : focus.id} — prefer adding tasks here unless context clearly indicates another module.`;
+  } else if (focus?.type === "project" && focus.name) {
+    focusLine = `\n## User's current focus\nProject: "${focus.name}" — prefer adding tasks to this project unless context clearly indicates otherwise.`;
+  }
+
   return `You are an AI task management assistant for a software platform development tracker.
 
 ## Modules & their tasks
@@ -91,6 +100,7 @@ ${moduleList}
 
 ## Project-level tasks
 ${projList}
+${focusLine}
 
 ## Your job
 - Parse emails, meeting notes, transcripts, or free-form text into actionable tasks
