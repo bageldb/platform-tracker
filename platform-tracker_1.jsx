@@ -1,4 +1,8 @@
 import { useState, useEffect, useRef } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 
 const STATUS = {
   todo:       { label: "To Do",       color: "#8b8fa8", bg: "#2a2b36" },
@@ -343,20 +347,88 @@ export default function PlatformTracker() {
       ),
     };
 
+    // Add a placeholder assistant message we'll stream into
+    setChatMessages(p => [...p, { role: "assistant", text: "", toolCalls: [], streaming: true }]);
+
     try {
-      const res = await fetch("/api/ai", {
+      const res = await fetch("/api/ai-stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: apiMessages, state }),
       });
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
 
-      (data.toolCalls ?? []).forEach(executeToolCall);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
-      setChatMessages(p => [...p, { role: "assistant", text: data.text, toolCalls: data.toolCalls ?? [] }]);
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+
+        // SSE messages are separated by double newlines
+        const chunks = buf.split("\n\n");
+        buf = chunks.pop(); // keep incomplete chunk
+
+        for (const chunk of chunks) {
+          if (!chunk.trim()) continue;
+          let eventType = "";
+          let dataStr = "";
+          for (const line of chunk.split("\n")) {
+            if (line.startsWith("event: ")) eventType = line.slice(7).trim();
+            if (line.startsWith("data: ")) dataStr = line.slice(6).trim();
+          }
+          if (!dataStr) continue;
+          let evt;
+          try { evt = JSON.parse(dataStr); } catch { continue; }
+
+          if (eventType === "token") {
+            setChatMessages(p => {
+              const next = [...p];
+              const last = next[next.length - 1];
+              if (last?.role === "assistant") {
+                next[next.length - 1] = { ...last, text: last.text + evt.text };
+              }
+              return next;
+            });
+            chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+          } else if (eventType === "tool_call") {
+            executeToolCall(evt);
+            setChatMessages(p => {
+              const next = [...p];
+              const last = next[next.length - 1];
+              if (last?.role === "assistant") {
+                next[next.length - 1] = { ...last, toolCalls: [...(last.toolCalls ?? []), evt] };
+              }
+              return next;
+            });
+          } else if (eventType === "done") {
+            setChatMessages(p => {
+              const next = [...p];
+              const last = next[next.length - 1];
+              if (last?.role === "assistant") {
+                next[next.length - 1] = { ...last, streaming: false };
+              }
+              return next;
+            });
+          } else if (eventType === "error") {
+            throw new Error(evt.message);
+          }
+        }
+      }
     } catch (err) {
-      setChatMessages(p => [...p, { role: "assistant", text: `Error: ${err.message}`, toolCalls: [] }]);
+      setChatMessages(p => {
+        const next = [...p];
+        const last = next[next.length - 1];
+        if (last?.role === "assistant" && last.streaming) {
+          next[next.length - 1] = { role: "assistant", text: `Error: ${err.message}`, toolCalls: [], streaming: false };
+        } else {
+          next.push({ role: "assistant", text: `Error: ${err.message}`, toolCalls: [] });
+        }
+        return next;
+      });
     } finally {
       setChatLoading(false);
       setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
@@ -905,32 +977,110 @@ export default function PlatformTracker() {
               </div>
             )}
             {chatMessages.map((msg, i) => (
-              <div key={i} style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: msg.role === "user" ? "flex-end" : "flex-start" }}>
-                <div style={{
-                  maxWidth: "92%", padding: "9px 12px", borderRadius: msg.role === "user" ? "12px 12px 3px 12px" : "12px 12px 12px 3px",
-                  background: msg.role === "user" ? "#7c6af7" : C.surfaceMid,
-                  border: msg.role === "user" ? "none" : `1px solid ${C.border}`,
-                  fontSize: 13, color: msg.role === "user" ? "#fff" : C.textPrimary,
-                  lineHeight: 1.55, whiteSpace: "pre-wrap", wordBreak: "break-word",
-                }}>
-                  {msg.text}
-                </div>
-                {msg.toolCalls?.length > 0 && (
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4, maxWidth: "92%" }}>
-                    {msg.toolCalls.map((tc, j) => (
-                      <span key={j} style={{
-                        fontSize: 10, padding: "2px 7px", borderRadius: 99,
-                        background: "#7c6af720", border: "1px solid #7c6af740", color: "#7c6af7",
-                      }}>
-                        {tc.name.replace(/_/g, " ")} {tc.input.moduleId ?? tc.input.project ?? ""}
-                      </span>
-                    ))}
+              <div key={i} style={{ display: "flex", flexDirection: "column", gap: 5, alignItems: msg.role === "user" ? "flex-end" : "flex-start" }}>
+                {msg.role === "user" ? (
+                  <div style={{
+                    maxWidth: "92%", padding: "9px 12px",
+                    borderRadius: "12px 12px 3px 12px",
+                    background: "#7c6af7",
+                    fontSize: 13, color: "#fff",
+                    lineHeight: 1.55, whiteSpace: "pre-wrap", wordBreak: "break-word",
+                  }}>
+                    {msg.text}
+                  </div>
+                ) : (
+                  <div style={{
+                    maxWidth: "96%", padding: "10px 14px",
+                    borderRadius: "12px 12px 12px 3px",
+                    background: C.surfaceMid,
+                    border: `1px solid ${C.border}`,
+                    fontSize: 13, color: C.textPrimary,
+                    lineHeight: 1.6, wordBreak: "break-word",
+                  }}>
+                    {msg.toolCalls?.length > 0 && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: msg.text ? 10 : 0 }}>
+                        {msg.toolCalls.map((tc, j) => (
+                          <span key={j} style={{
+                            fontSize: 10, padding: "2px 7px", borderRadius: 99,
+                            background: "#7c6af720", border: "1px solid #7c6af740", color: "#a593ff",
+                            display: "inline-flex", alignItems: "center", gap: 3,
+                          }}>
+                            <span style={{ opacity: 0.7 }}>⚡</span>
+                            {tc.name.replace(/_/g, " ")} {tc.input.moduleId ?? tc.input.project ?? ""}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {msg.text && (
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                          code({ node, inline, className, children, ...props }) {
+                            const match = /language-(\w+)/.exec(className || "");
+                            return !inline && match ? (
+                              <SyntaxHighlighter
+                                style={vscDarkPlus}
+                                language={match[1]}
+                                PreTag="div"
+                                customStyle={{ borderRadius: 6, fontSize: 12, margin: "6px 0" }}
+                                {...props}
+                              >
+                                {String(children).replace(/\n$/, "")}
+                              </SyntaxHighlighter>
+                            ) : (
+                              <code style={{
+                                background: "#1e1e2e", borderRadius: 4, padding: "1px 5px",
+                                fontSize: "0.9em", color: "#a593ff",
+                              }} {...props}>
+                                {children}
+                              </code>
+                            );
+                          },
+                          p: ({ children }) => <p style={{ margin: "4px 0" }}>{children}</p>,
+                          ul: ({ children }) => <ul style={{ margin: "4px 0", paddingLeft: 18 }}>{children}</ul>,
+                          ol: ({ children }) => <ol style={{ margin: "4px 0", paddingLeft: 18 }}>{children}</ol>,
+                          li: ({ children }) => <li style={{ margin: "2px 0" }}>{children}</li>,
+                          h1: ({ children }) => <h1 style={{ fontSize: 15, fontWeight: 700, margin: "8px 0 4px", color: C.textPrimary }}>{children}</h1>,
+                          h2: ({ children }) => <h2 style={{ fontSize: 14, fontWeight: 700, margin: "8px 0 4px", color: C.textPrimary }}>{children}</h2>,
+                          h3: ({ children }) => <h3 style={{ fontSize: 13, fontWeight: 600, margin: "6px 0 3px", color: C.textPrimary }}>{children}</h3>,
+                          strong: ({ children }) => <strong style={{ color: C.textPrimary, fontWeight: 600 }}>{children}</strong>,
+                          blockquote: ({ children }) => (
+                            <blockquote style={{ borderLeft: "3px solid #7c6af7", paddingLeft: 10, margin: "6px 0", color: C.textMuted }}>
+                              {children}
+                            </blockquote>
+                          ),
+                          a: ({ href, children }) => (
+                            <a href={href} target="_blank" rel="noreferrer" style={{ color: "#a593ff" }}>{children}</a>
+                          ),
+                          hr: () => <hr style={{ border: "none", borderTop: `1px solid ${C.border}`, margin: "8px 0" }} />,
+                          table: ({ children }) => (
+                            <div style={{ overflowX: "auto", margin: "6px 0" }}>
+                              <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12 }}>{children}</table>
+                            </div>
+                          ),
+                          th: ({ children }) => <th style={{ padding: "4px 8px", borderBottom: `1px solid ${C.border}`, textAlign: "left", fontWeight: 600 }}>{children}</th>,
+                          td: ({ children }) => <td style={{ padding: "4px 8px", borderBottom: `1px solid ${C.border}` }}>{children}</td>,
+                        }}
+                      >
+                        {msg.text}
+                      </ReactMarkdown>
+                    )}
+                    {msg.streaming && !msg.text && (
+                      <span style={{ color: C.textMuted, fontSize: 12 }}>…</span>
+                    )}
+                    {msg.streaming && msg.text && (
+                      <span style={{
+                        display: "inline-block", width: 2, height: "1em",
+                        background: "#a593ff", marginLeft: 1, verticalAlign: "text-bottom",
+                        animation: "blink 1s step-end infinite",
+                      }} />
+                    )}
                   </div>
                 )}
               </div>
             ))}
-            {chatLoading && (
-              <div style={{ display: "flex", alignItems: "center", gap: 6, color: C.textMuted, fontSize: 12 }}>
+            {chatLoading && !chatMessages[chatMessages.length - 1]?.streaming && (
+              <div style={{ display: "flex", alignItems: "center", gap: 5, color: C.textMuted, fontSize: 12, paddingLeft: 4 }}>
                 <span style={{ animation: "pulse 1.2s infinite" }}>●</span>
                 <span style={{ animation: "pulse 1.2s infinite 0.2s" }}>●</span>
                 <span style={{ animation: "pulse 1.2s infinite 0.4s" }}>●</span>
