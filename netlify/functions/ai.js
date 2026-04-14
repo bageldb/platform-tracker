@@ -1,3 +1,5 @@
+import { getUser } from "@netlify/identity";
+
 const TOOLS = [
   {
     name: "add_module_task",
@@ -101,11 +103,14 @@ ${projList}
 When given unstructured content, proactively extract ALL actionable items and call the relevant tools. After all tool calls, write a concise summary of what you did and any suggestions.`;
 }
 
-export const handler = async (event) => {
-  if (event.httpMethod !== "POST") return { statusCode: 405, body: "Method Not Allowed" };
+export default async (req) => {
+  const user = await getUser(req);
+  if (!user) return new Response("Unauthorized", { status: 401 });
+
+  if (req.method !== "POST") return new Response("Method Not Allowed", { status: 405 });
 
   try {
-    const { messages, state } = JSON.parse(event.body);
+    const { messages, state } = await req.json();
 
     let msgs = messages;
     const allToolCalls = [];
@@ -135,11 +140,7 @@ export const handler = async (event) => {
 
       if (data.stop_reason !== "tool_use" || toolBlocks.length === 0) {
         const text = (data.content ?? []).filter(b => b.type === "text").map(b => b.text).join("");
-        return {
-          statusCode: 200,
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text, toolCalls: allToolCalls }),
-        };
+        return Response.json({ text, toolCalls: allToolCalls });
       }
 
       allToolCalls.push(...toolBlocks.map(b => ({ name: b.name, input: b.input })));
@@ -158,9 +159,9 @@ export const handler = async (event) => {
       ];
     }
 
-    return { statusCode: 200, body: JSON.stringify({ text: "Done.", toolCalls: allToolCalls }) };
+    return Response.json({ text: "Done.", toolCalls: allToolCalls });
   } catch (err) {
     console.error(err);
-    return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
+    return Response.json({ error: err.message }, { status: 500 });
   }
 };

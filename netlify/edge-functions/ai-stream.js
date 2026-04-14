@@ -101,19 +101,85 @@ ${projList}
 When given unstructured content, proactively extract ALL actionable items and call the relevant tools. After all tool calls, write a concise summary of what you did and any suggestions. Use markdown formatting in your responses (headers, bullet points, bold text, code blocks where relevant).`;
 }
 
-/** Encode an SSE event */
 function sseEvent(type, data) {
   return `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`;
 }
 
-export default async function handler(req, context) {
-  if (req.method !== "POST") {
-    return new Response("Method Not Allowed", { status: 405 });
+/** Non-streaming API call — used for tool-call rounds */
+async function callApi(msgs, state, apiKey) {
+  const res = await fetch("https://ungate.bagel.to/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "anthropic-version": "2023-06-01",
+      ...(apiKey ? { "x-api-key": apiKey } : {}),
+    },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-5",
+      max_tokens: 4096,
+      system: buildSystem(state),
+      messages: msgs,
+      tools: TOOLS,
+    }),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+/** Streaming API call — used for the final text response. Forwards tokens via enqueue. */
+async function streamFinal(msgs, state, apiKey, enqueue) {
+  const res = await fetch("https://ungate.bagel.to/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "anthropic-version": "2023-06-01",
+      ...(apiKey ? { "x-api-key": apiKey } : {}),
+    },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-5",
+      max_tokens: 4096,
+      system: buildSystem(state),
+      messages: msgs,
+      tools: TOOLS,
+      stream: true,
+    }),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let buf = "";
+  let inText = false;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+
+    const lines = buf.split("\n");
+    buf = lines.pop();
+
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+      let evt;
+      try { evt = JSON.parse(line.slice(6)); } catch { continue; }
+
+      if (evt.type === "content_block_start") {
+        inText = evt.content_block?.type === "text";
+      } else if (evt.type === "content_block_delta" && inText && evt.delta?.type === "text_delta") {
+        enqueue(sseEvent("token", { text: evt.delta.text }));
+      } else if (evt.type === "content_block_stop") {
+        inText = false;
+      }
+    }
   }
+}
+
+export default async function handler(req) {
+  if (req.method !== "POST") return new Response("Method Not Allowed", { status: 405 });
 
   const { messages, state } = await req.json();
   const apiKey = Deno.env.get("AI_API_KEY");
-
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream({
@@ -124,163 +190,42 @@ export default async function handler(req, context) {
         let msgs = messages;
         const allToolCalls = [];
 
-        // ── Agentic loop: run non-streaming rounds for tool calls ──
+        // ── Agentic loop: non-streaming rounds until no more tool calls ──
         for (let round = 0; round < 10; round++) {
-          const isLastRound = round === 9;
+          const data = await callApi(msgs, state, apiKey);
+          const toolBlocks = (data.content ?? []).filter(b => b.type === "tool_use");
 
-          // On the last round, force a text-only response (no tools) and stream it
-          const requestBody = {
-            model: "claude-sonnet-4-5",
-            max_tokens: 4096,
-            system: buildSystem(state),
-            messages: msgs,
-            tools: TOOLS,
-          };
+          if (data.stop_reason !== "tool_use" || toolBlocks.length === 0) {
+            // No more tool calls — do final streaming text response
+            // Append the last assistant text to msgs so Claude has context
+            const lastText = (data.content ?? []).filter(b => b.type === "text").map(b => b.text).join("");
 
-          // If we haven't entered a tool-use loop yet, try streaming immediately
-          // Otherwise do a non-streaming tool round first
-          if (round === 0 && allToolCalls.length === 0) {
-            // Attempt streaming from the first round
-            requestBody.stream = true;
-          }
-
-          const res = await fetch("https://ungate.bagel.to/v1/messages", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "anthropic-version": "2023-06-01",
-              ...(apiKey ? { "x-api-key": apiKey } : {}),
-            },
-            body: JSON.stringify(requestBody),
-          });
-
-          if (!res.ok) {
-            const err = await res.text();
-            enqueue(sseEvent("error", { message: err }));
-            controller.close();
-            return;
-          }
-
-          // ── Streaming response ──
-          if (requestBody.stream) {
-            let stopReason = null;
-            let toolBlocks = [];
-            let currentToolBlock = null;
-            let currentToolInput = "";
-            let inTextBlock = false;
-
-            const reader = res.body.getReader();
-            const dec = new TextDecoder();
-            let buf = "";
-
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              buf += dec.decode(value, { stream: true });
-
-              // SSE lines
-              const lines = buf.split("\n");
-              buf = lines.pop(); // keep incomplete line
-
-              for (const line of lines) {
-                if (!line.startsWith("data: ")) continue;
-                const raw = line.slice(6).trim();
-                if (raw === "[DONE]") break;
-
-                let event;
-                try { event = JSON.parse(raw); } catch { continue; }
-
-                // Handle Anthropic streaming event types
-                if (event.type === "message_start") {
-                  // nothing yet
-                } else if (event.type === "content_block_start") {
-                  const block = event.content_block;
-                  if (block.type === "text") {
-                    inTextBlock = true;
-                  } else if (block.type === "tool_use") {
-                    inTextBlock = false;
-                    currentToolBlock = { id: block.id, name: block.name };
-                    currentToolInput = "";
-                  }
-                } else if (event.type === "content_block_delta") {
-                  const delta = event.delta;
-                  if (delta.type === "text_delta" && inTextBlock) {
-                    // Stream text token to client
-                    enqueue(sseEvent("token", { text: delta.text }));
-                  } else if (delta.type === "input_json_delta" && currentToolBlock) {
-                    currentToolInput += delta.partial_json;
-                  }
-                } else if (event.type === "content_block_stop") {
-                  if (currentToolBlock) {
-                    let input = {};
-                    try { input = JSON.parse(currentToolInput); } catch {}
-                    toolBlocks.push({ ...currentToolBlock, input });
-                    currentToolBlock = null;
-                    currentToolInput = "";
-                  }
-                  inTextBlock = false;
-                } else if (event.type === "message_delta") {
-                  if (event.delta?.stop_reason) stopReason = event.delta.stop_reason;
-                } else if (event.type === "message_stop") {
-                  // done
-                }
-              }
+            if (allToolCalls.length === 0) {
+              // No tools were ever called — just stream this response directly
+              await streamFinal(msgs, state, apiKey, enqueue);
+            } else {
+              // Tools were called — ask Claude to now write its summary (streaming)
+              await streamFinal(msgs, state, apiKey, enqueue);
             }
 
-            if (stopReason === "tool_use" && toolBlocks.length > 0) {
-              // Emit tool calls to client
-              for (const tb of toolBlocks) {
-                allToolCalls.push({ name: tb.name, input: tb.input });
-                enqueue(sseEvent("tool_call", { name: tb.name, input: tb.input }));
-              }
-
-              // Continue agentic loop with tool results
-              msgs = [
-                ...msgs,
-                { role: "assistant", content: toolBlocks.map(tb => ({ type: "tool_use", id: tb.id, name: tb.name, input: tb.input })) },
-                {
-                  role: "user",
-                  content: toolBlocks.map(tb => ({
-                    type: "tool_result",
-                    tool_use_id: tb.id,
-                    content: "Success",
-                  })),
-                },
-              ];
-
-              // Next round will also stream (text response after tools)
-              continue;
-            }
-
-            // Text response complete (stop_reason = end_turn)
             enqueue(sseEvent("done", { toolCalls: allToolCalls }));
             controller.close();
             return;
           }
 
-          // ── Non-streaming fallback (shouldn't normally hit this) ──
-          const data = await res.json();
-          const toolBlocksFallback = (data.content ?? []).filter(b => b.type === "tool_use");
-
-          if (data.stop_reason !== "tool_use" || toolBlocksFallback.length === 0) {
-            const text = (data.content ?? []).filter(b => b.type === "text").map(b => b.text).join("");
-            enqueue(sseEvent("token", { text }));
-            enqueue(sseEvent("done", { toolCalls: allToolCalls }));
-            controller.close();
-            return;
+          // Emit tool calls to the client
+          for (const tb of toolBlocks) {
+            allToolCalls.push({ name: tb.name, input: tb.input });
+            enqueue(sseEvent("tool_call", { name: tb.name, input: tb.input }));
           }
 
-          allToolCalls.push(...toolBlocksFallback.map(b => ({ name: b.name, input: b.input })));
-          for (const b of toolBlocksFallback) {
-            enqueue(sseEvent("tool_call", { name: b.name, input: b.input }));
-          }
-
+          // Feed tool results back for next round
           msgs = [
             ...msgs,
             { role: "assistant", content: data.content },
             {
               role: "user",
-              content: toolBlocksFallback.map(b => ({
+              content: toolBlocks.map(b => ({
                 type: "tool_result",
                 tool_use_id: b.id,
                 content: "Success",
@@ -292,8 +237,10 @@ export default async function handler(req, context) {
         enqueue(sseEvent("done", { toolCalls: allToolCalls }));
         controller.close();
       } catch (err) {
-        enqueue(sseEvent("error", { message: err.message }));
-        controller.close();
+        try {
+          controller.enqueue(encoder.encode(sseEvent("error", { message: err.message })));
+          controller.close();
+        } catch {}
       }
     },
   });

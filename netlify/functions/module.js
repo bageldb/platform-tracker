@@ -1,11 +1,15 @@
 import { neon } from "@neondatabase/serverless";
+import { getUser } from "@netlify/identity";
 
 const sql = neon(process.env.DATABASE_URL);
 
-export const handler = async (event) => {
+export default async (req) => {
+  const user = await getUser(req);
+  if (!user) return new Response("Unauthorized", { status: 401 });
+
   try {
-    if (event.httpMethod === "POST") {
-      const { module, position } = JSON.parse(event.body);
+    if (req.method === "POST") {
+      const { module, position } = await req.json();
       await sql`
         INSERT INTO module_state (id, data, position, updated_at)
         VALUES (${module.id}, ${JSON.stringify(module)}, ${position ?? 0}, NOW())
@@ -14,18 +18,18 @@ export const handler = async (event) => {
               position   = EXCLUDED.position,
               updated_at = NOW()
       `;
-      return { statusCode: 200, body: JSON.stringify({ ok: true }) };
+      return Response.json({ ok: true });
     }
 
-    if (event.httpMethod === "DELETE") {
-      const { id } = JSON.parse(event.body);
+    if (req.method === "DELETE") {
+      const { id } = await req.json();
       await sql`DELETE FROM module_state WHERE id = ${id}`;
-      return { statusCode: 200, body: JSON.stringify({ ok: true }) };
+      return Response.json({ ok: true });
     }
 
-    return { statusCode: 405, body: "Method Not Allowed" };
+    return new Response("Method Not Allowed", { status: 405 });
   } catch (err) {
     console.error(err);
-    return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
+    return Response.json({ error: err.message }, { status: 500 });
   }
 };

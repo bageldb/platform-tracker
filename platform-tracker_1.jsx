@@ -3,6 +3,9 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
+import netlifyIdentity from "netlify-identity-widget";
+
+netlifyIdentity.init();
 
 const STATUS = {
   todo:       { label: "To Do",       color: "#8b8fa8", bg: "#2a2b36" },
@@ -125,13 +128,59 @@ function buildHash(view, activeModule, selectedProject) {
 }
 // ────────────────────────────────────────────────────────────────────
 
+/** Returns the current user's JWT, or null if not logged in */
+async function getToken() {
+  const user = netlifyIdentity.currentUser();
+  if (!user) return null;
+  return user.jwt();
+}
+
+/** Authenticated fetch — injects Bearer token automatically */
+async function authFetch(url, options = {}) {
+  const token = await getToken();
+  const headers = {
+    ...(options.headers || {}),
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+  return fetch(url, { ...options, headers });
+}
+
 export default function PlatformTracker() {
+  const [user, setUser] = useState(() => netlifyIdentity.currentUser());
   const [modules, setModules]           = useState(null);
 
   const initial = parseHash();
   const [view, setView]                 = useState(initial.view);
   const [activeModule, setActiveModule] = useState(initial.activeModule);
   const [selectedProject, setSelectedProject] = useState(initial.selectedProject);
+
+  // Netlify Identity: listen for login/logout
+  useEffect(() => {
+    const onLogin = (u) => { setUser(u); netlifyIdentity.close(); };
+    const onLogout = () => setUser(null);
+    netlifyIdentity.on("login", onLogin);
+    netlifyIdentity.on("logout", onLogout);
+    return () => {
+      netlifyIdentity.off("login", onLogin);
+      netlifyIdentity.off("logout", onLogout);
+    };
+  }, []);
+
+  // Show login gate if not authenticated
+  if (!user) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100vh", background: C.bg, color: C.textPrimary, gap: 16 }}>
+        <div style={{ fontSize: 22, fontWeight: 700 }}>Platform Tracker</div>
+        <div style={{ color: C.textSecondary, fontSize: 14 }}>Sign in to continue</div>
+        <button
+          onClick={() => netlifyIdentity.open("login")}
+          style={{ padding: "10px 28px", background: "#7c6af7", border: "none", borderRadius: 8, color: "#fff", fontSize: 15, fontWeight: 600, cursor: "pointer" }}
+        >
+          Sign In
+        </button>
+      </div>
+    );
+  }
 
   // Keep URL in sync with state
   useEffect(() => {
@@ -194,7 +243,7 @@ export default function PlatformTracker() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch("/api/state");
+        const res = await authFetch("/api/state");
         const { data: saved } = await res.json();
         if (saved) {
           const projEntry = saved.find(m => m.id === "__projects__");
@@ -231,7 +280,7 @@ export default function PlatformTracker() {
       const p = prev.find(x => x.id === m.id);
       if (!p || JSON.stringify(p) !== JSON.stringify(m)) {
         saves.push(
-          fetch("/api/module", {
+          authFetch("/api/module", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ module: m, position: i }),
@@ -243,7 +292,7 @@ export default function PlatformTracker() {
     prev.forEach(p => {
       if (!modules.find(m => m.id === p.id)) {
         saves.push(
-          fetch("/api/module", {
+          authFetch("/api/module", {
             method: "DELETE",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ id: p.id }),
@@ -267,7 +316,7 @@ export default function PlatformTracker() {
     if (!initialLoadDone.current) return;
     if (JSON.stringify(projectTasks) === JSON.stringify(prevProjTasksRef.current)) return;
     prevProjTasksRef.current = projectTasks;
-    fetch("/api/module", {
+    authFetch("/api/module", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ module: { id: "__projects__", projectTasks }, position: -1 }),
@@ -396,7 +445,7 @@ export default function PlatformTracker() {
     setChatMessages(p => [...p, { role: "assistant", text: "", toolCalls: [], streaming: true }]);
 
     try {
-      const res = await fetch("/api/ai-stream", {
+      const res = await authFetch("/api/ai-stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: apiMessages, state }),
@@ -555,6 +604,14 @@ export default function PlatformTracker() {
           }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
             AI
+          </button>
+          <button onClick={() => netlifyIdentity.logout()} title={user?.email} style={{
+            background: "transparent", border: `1px solid ${C.border}`,
+            borderRadius: 7, padding: "6px 10px", fontSize: 12, color: C.textMuted,
+            cursor: "pointer", display: "flex", alignItems: "center", gap: 5,
+          }}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+            Sign out
           </button>
         </div>
       </div>
