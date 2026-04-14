@@ -123,7 +123,13 @@ export default function PlatformTracker() {
   const initialLoadDone = useRef(false);
   const [editingTask, setEditingTask]   = useState(null); // { mid, tid }
   const [editTaskText, setEditTaskText] = useState("");
-  const [expandedTask, setExpandedTask] = useState(null); // "mid:tid"
+  const [expandedTask, setExpandedTask]         = useState(null); // "mid:tid"
+  const [projectTasks, setProjectTasks]         = useState({}); // { [proj]: Task[] }
+  const [newProjTaskText, setNewProjTaskText]   = useState("");
+  const [newProjTaskPri, setNewProjTaskPri]     = useState("medium");
+  const [expandedProjTask, setExpandedProjTask] = useState(null); // "proj:tid"
+  const [editingProjTask, setEditingProjTask]   = useState(null); // { proj, tid }
+  const [editProjTaskText, setEditProjTaskText] = useState("");
   const [editingModuleId, setEditingModuleId] = useState(null);
   const [editModuleName, setEditModuleName]   = useState("");
   const [editModuleSubtitle, setEditModuleSubtitle] = useState("");
@@ -136,10 +142,12 @@ export default function PlatformTracker() {
         const res = await fetch("/api/state");
         const { data: saved } = await res.json();
         if (saved) {
-          // Use saved modules directly; seed any initialModules not yet in DB
-          const savedIds = new Set(saved.map(m => m.id));
+          const projEntry = saved.find(m => m.id === "__projects__");
+          if (projEntry?.projectTasks) setProjectTasks(projEntry.projectTasks);
+          const moduleData = saved.filter(m => m.id !== "__projects__");
+          const savedIds = new Set(moduleData.map(m => m.id));
           const unseeded = initialModules.filter(m => !savedIds.has(m.id));
-          const all = [...saved, ...unseeded];
+          const all = [...moduleData, ...unseeded];
           const maxId = all.flatMap(m => m.tasks).reduce((max, t) => Math.max(max, t.id), 99);
           nextTaskId = maxId + 1;
           setModules(all);
@@ -199,6 +207,18 @@ export default function PlatformTracker() {
     prevModulesRef.current = modules;
   }, [modules]);
 
+  const prevProjTasksRef = useRef(null);
+  useEffect(() => {
+    if (!initialLoadDone.current) return;
+    if (JSON.stringify(projectTasks) === JSON.stringify(prevProjTasksRef.current)) return;
+    prevProjTasksRef.current = projectTasks;
+    fetch("/api/module", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ module: { id: "__projects__", projectTasks }, position: -1 }),
+    }).catch(console.error);
+  }, [projectTasks]);
+
   // All unique projects across all modules
   const allProjects = [...new Set(modules?.flatMap(m => m.projects) || [])].sort();
 
@@ -256,6 +276,16 @@ export default function PlatformTracker() {
     if (!confirm("Delete this module and all its tasks?")) return;
     setModules(p => p.filter(m => m.id !== mid));
   };
+
+  const addProjectTask = (proj) => {
+    if (!newProjTaskText.trim()) return;
+    setProjectTasks(p => ({ ...p, [proj]: [...(p[proj] ?? []), { id: Date.now(), text: newProjTaskText.trim(), status: "todo", priority: newProjTaskPri, description: "" }] }));
+    setNewProjTaskText("");
+  };
+  const updateProjectTask = (proj, tid, changes) =>
+    setProjectTasks(p => ({ ...p, [proj]: (p[proj] ?? []).map(t => t.id === tid ? { ...t, ...changes } : t) }));
+  const deleteProjectTask = (proj, tid) =>
+    setProjectTasks(p => ({ ...p, [proj]: (p[proj] ?? []).filter(t => t.id !== tid) }));
 
   const stats = (m) => ({
     total:      m.tasks.length,
@@ -486,6 +516,10 @@ export default function PlatformTracker() {
                           {/* Main row */}
                           <div style={{ padding: "9px 12px", display: "flex", alignItems: "center", gap: 10 }}>
                             <div style={{ width: 6, height: 6, borderRadius: "50%", background: PRIORITY[task.priority].color, flexShrink: 0 }} />
+                            <button onClick={() => setExpandedTask(isExpanded ? null : key)} title={isExpanded ? "Collapse" : "Add notes"}
+                              style={{ background: "transparent", border: "none", color: isExpanded || task.description ? C.textSecondary : C.textMuted, cursor: "pointer", fontSize: 11, padding: "0 1px", lineHeight: 1, flexShrink: 0 }}>
+                              {isExpanded ? "▾" : "▸"}
+                            </button>
                             {editingTask?.mid === m.id && editingTask?.tid === task.id ? (
                               <input autoFocus value={editTaskText} onChange={e => setEditTaskText(e.target.value)}
                                 onBlur={commitEditTask}
@@ -508,10 +542,6 @@ export default function PlatformTracker() {
                               style={{ background: STATUS[task.status].bg, border: `1px solid ${STATUS[task.status].color}45`, borderRadius: 5, padding: "2px 7px", fontSize: 11, color: STATUS[task.status].color, cursor: "pointer" }}>
                               {Object.entries(STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
                             </select>
-                            <button onClick={() => setExpandedTask(isExpanded ? null : key)} title={isExpanded ? "Collapse" : "Add notes"}
-                              style={{ background: "transparent", border: "none", color: isExpanded || task.description ? C.textSecondary : C.textMuted, cursor: "pointer", fontSize: 13, padding: "0 2px", lineHeight: 1 }}>
-                              {isExpanded ? "▾" : "▸"}
-                            </button>
                             <button onClick={() => deleteTask(m.id, task.id)}
                               style={{ background: "transparent", border: "none", color: C.textMuted, cursor: "pointer", fontSize: 16, lineHeight: 1, padding: "0 2px" }}>×</button>
                           </div>
@@ -579,7 +609,7 @@ export default function PlatformTracker() {
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 12 }}>
                   {allProjects.map(proj => {
                     const projModules = modules.filter(m => m.projects.includes(proj));
-                    const projTasks   = projModules.flatMap(m => m.tasks);
+                    const projTasks   = [...projModules.flatMap(m => m.tasks), ...(projectTasks[proj] ?? [])];
                     const done        = projTasks.filter(t => t.status === "done").length;
                     const blocked     = projTasks.filter(t => t.status === "blocked").length;
                     const inprogress  = projTasks.filter(t => t.status === "inprogress").length;
@@ -644,6 +674,80 @@ export default function PlatformTracker() {
                 <div style={{ width: 10, height: 10, borderRadius: "50%", background: projectColor(selectedProject) }} />
                 <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>{selectedProject}</h2>
               </div>
+
+              {/* Project-level tasks */}
+              {(() => {
+                const color = projectColor(selectedProject);
+                const pts = projectTasks[selectedProject] ?? [];
+                return (
+                  <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderTop: `3px solid ${color}`, borderRadius: 9, marginBottom: 16, overflow: "hidden" }}>
+                    <div style={{ padding: "12px 16px 10px", borderBottom: `1px solid ${C.border}` }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: C.textPrimary, marginBottom: 2 }}>Project Tasks</div>
+                      <div style={{ fontSize: 11, color: C.textMuted }}>Tasks specific to this project</div>
+                    </div>
+                    <div style={{ padding: "8px 12px", display: "flex", flexDirection: "column", gap: 5 }}>
+                      {pts.length === 0 && <div style={{ fontSize: 12, color: C.textMuted, padding: "4px 0" }}>No project tasks yet</div>}
+                      {pts.map(task => {
+                        const pkey = `${selectedProject}:${task.id}`;
+                        const isExp = expandedProjTask === pkey;
+                        return (
+                          <div key={task.id} style={{ background: C.surfaceMid, borderRadius: 7, border: `1px solid ${task.status === "blocked" ? "#ef444428" : task.status === "inprogress" ? "#f59e0b22" : task.status === "done" ? "#10b98118" : C.border}` }}>
+                            <div style={{ padding: "8px 10px", display: "flex", alignItems: "center", gap: 8 }}>
+                              <div style={{ width: 6, height: 6, borderRadius: "50%", background: PRIORITY[task.priority].color, flexShrink: 0 }} />
+                              <button onClick={() => setExpandedProjTask(isExp ? null : pkey)}
+                                style={{ background: "transparent", border: "none", color: isExp || task.description ? C.textSecondary : C.textMuted, cursor: "pointer", fontSize: 11, padding: "0 1px", lineHeight: 1, flexShrink: 0 }}>
+                                {isExp ? "▾" : "▸"}
+                              </button>
+                              {editingProjTask?.proj === selectedProject && editingProjTask?.tid === task.id ? (
+                                <input autoFocus value={editProjTaskText} onChange={e => setEditProjTaskText(e.target.value)}
+                                  onBlur={() => { if (editProjTaskText.trim()) updateProjectTask(selectedProject, task.id, { text: editProjTaskText.trim() }); setEditingProjTask(null); }}
+                                  onKeyDown={e => { if (e.key === "Enter") { if (editProjTaskText.trim()) updateProjectTask(selectedProject, task.id, { text: editProjTaskText.trim() }); setEditingProjTask(null); } if (e.key === "Escape") setEditingProjTask(null); }}
+                                  style={{ flex: 1, background: C.surfaceHigh, border: `1px solid ${C.borderBright}`, borderRadius: 5, padding: "2px 7px", fontSize: 13, color: C.textPrimary, outline: "none" }} />
+                              ) : (
+                                <div onClick={() => { setEditingProjTask({ proj: selectedProject, tid: task.id }); setEditProjTaskText(task.text); }}
+                                  style={{ flex: 1, fontSize: 13, cursor: "text", color: task.status === "done" ? C.textMuted : C.textPrimary, textDecoration: task.status === "done" ? "line-through" : "none" }}>
+                                  {task.text}
+                                  {task.description && !isExp && <span style={{ marginLeft: 8, fontSize: 11, color: C.textMuted }}>· has notes</span>}
+                                </div>
+                              )}
+                              <select value={task.priority} onChange={e => updateProjectTask(selectedProject, task.id, { priority: e.target.value })}
+                                style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 5, padding: "2px 5px", fontSize: 11, color: PRIORITY[task.priority].color, cursor: "pointer" }}>
+                                {Object.entries(PRIORITY).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                              </select>
+                              <select value={task.status} onChange={e => updateProjectTask(selectedProject, task.id, { status: e.target.value })}
+                                style={{ background: STATUS[task.status].bg, border: `1px solid ${STATUS[task.status].color}45`, borderRadius: 5, padding: "2px 7px", fontSize: 11, color: STATUS[task.status].color, cursor: "pointer" }}>
+                                {Object.entries(STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                              </select>
+                              <button onClick={() => deleteProjectTask(selectedProject, task.id)}
+                                style={{ background: "transparent", border: "none", color: C.textMuted, cursor: "pointer", fontSize: 16, lineHeight: 1, padding: "0 2px" }}>×</button>
+                            </div>
+                            {isExp && (
+                              <div style={{ padding: "0 12px 10px 30px", borderTop: `1px solid ${C.border}20` }}>
+                                <textarea autoFocus value={task.description ?? ""} onChange={e => updateProjectTask(selectedProject, task.id, { description: e.target.value })}
+                                  placeholder="Add notes or details..." rows={3}
+                                  style={{ width: "100%", background: "transparent", border: "none", resize: "vertical", color: C.textSecondary, fontSize: 12, lineHeight: 1.6, outline: "none", fontFamily: "inherit", marginTop: 8, padding: 0 }} />
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                      {/* Add project task */}
+                      <div style={{ display: "flex", gap: 5, marginTop: 4 }}>
+                        <input value={newProjTaskText} onChange={e => setNewProjTaskText(e.target.value)}
+                          onKeyDown={e => e.key === "Enter" && addProjectTask(selectedProject)}
+                          placeholder="Add project task..."
+                          style={{ flex: 1, background: C.surfaceMid, border: `1px solid ${C.border}`, borderRadius: 7, padding: "7px 11px", color: C.textPrimary, fontSize: 13, outline: "none" }} />
+                        <select value={newProjTaskPri} onChange={e => setNewProjTaskPri(e.target.value)}
+                          style={{ background: C.surfaceMid, border: `1px solid ${C.border}`, borderRadius: 7, padding: "7px 6px", color: C.textSecondary, fontSize: 12, cursor: "pointer" }}>
+                          {Object.entries(PRIORITY).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                        </select>
+                        <button onClick={() => addProjectTask(selectedProject)}
+                          style={{ background: C.surfaceHigh, border: `1px solid ${C.borderBright}`, borderRadius: 7, padding: "7px 14px", color: C.textPrimary, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Add</button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
 
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {projectModules.map(m => {
